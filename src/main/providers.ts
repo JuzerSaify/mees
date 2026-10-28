@@ -2,11 +2,13 @@ import {
   PROVIDER_DEFINITIONS,
   type AgentHistoryMessage,
   type AgentReferenceImage,
+  type DesignMemoryEntry,
   type DesignMode,
   type DesignSelection,
   type ModelInfo,
   type ProviderId,
   type RecentDesignSummary,
+  type ReferenceVisualSummary,
   type TokenUsage
 } from '../shared/types'
 import { buildSystemPrompt } from '../shared/assistant-protocol'
@@ -35,8 +37,18 @@ interface StreamRequest {
   reviewNotes?: string
   target?: DesignSelection
   recentDesigns?: RecentDesignSummary[]
+  referenceVisuals?: ReferenceVisualSummary[]
+  designMemory?: DesignMemoryEntry[]
   signal: AbortSignal
   onDelta: (delta: string) => void
+  onProviderEvent?: (event: ProviderRuntimeEvent) => void
+}
+
+export interface ProviderRuntimeEvent {
+  type: 'attempt' | 'connected' | 'retry'
+  attempt: number
+  status?: number
+  delayMs?: number
 }
 
 export interface AgentToolDefinition {
@@ -74,10 +86,13 @@ export interface AgentTurnRequest {
   reviewNotes?: string
   target?: DesignSelection
   recentDesigns?: RecentDesignSummary[]
+  referenceVisuals?: ReferenceVisualSummary[]
+  designMemory?: DesignMemoryEntry[]
   messages: AgentConversationMessage[]
   tools: AgentToolDefinition[]
   signal: AbortSignal
   onDelta: (delta: string) => void
+  onProviderEvent?: (event: ProviderRuntimeEvent) => void
 }
 
 export interface AgentTurnResult {
@@ -183,9 +198,11 @@ function outputTokenLimit(purpose: StreamRequest['purpose']): number {
 async function fetchProvider(
   url: string,
   init: RequestInit,
-  signal: AbortSignal
+  signal: AbortSignal,
+  onEvent?: (event: ProviderRuntimeEvent) => void
 ): Promise<Response> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    onEvent?.({ type: 'attempt', attempt: attempt + 1 })
     try {
       const response = await fetch(url, { ...init, signal })
       if (
@@ -200,13 +217,27 @@ async function fetchProvider(
             : 500,
           signal
         )
+        onEvent?.({
+          type: 'retry',
+          attempt: attempt + 2,
+          status: response.status,
+          delayMs: Number.isFinite(retryAfter)
+            ? Math.min(2_000, Math.max(350, retryAfter * 1_000))
+            : 500
+        })
         continue
       }
+      onEvent?.({
+        type: 'connected',
+        attempt: attempt + 1,
+        status: response.status
+      })
       return response
     } catch (error) {
       if (signal.aborted) throw error
       if (attempt === 1) throw error
       await waitForRetry(350, signal)
+      onEvent?.({ type: 'retry', attempt: attempt + 2, delayMs: 350 })
     }
   }
   throw new ProviderRequestError('The provider could not be reached.')
@@ -553,7 +584,9 @@ async function runOpenAiAgentTurn(
     externalContext: request.externalContext,
     purpose: request.purpose,
     target: request.target,
-    recentDesigns: request.recentDesigns
+    recentDesigns: request.recentDesigns,
+    referenceVisuals: request.referenceVisuals,
+    designMemory: request.designMemory
   })
   const effort = normalizeEffort('openai', request.model, request.effort)
 
@@ -587,7 +620,8 @@ async function runOpenAiAgentTurn(
             : {})
         })
       },
-      request.signal
+      request.signal,
+      request.onProviderEvent
     )
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error
@@ -789,7 +823,9 @@ async function runAnthropicAgentTurn(
     externalContext: request.externalContext,
     purpose: request.purpose,
     target: request.target,
-    recentDesigns: request.recentDesigns
+    recentDesigns: request.recentDesigns,
+    referenceVisuals: request.referenceVisuals,
+    designMemory: request.designMemory
   })
   const effort = normalizeEffort('anthropic', request.model, request.effort)
 
@@ -824,7 +860,8 @@ async function runAnthropicAgentTurn(
           ...(effort ? { output_config: { effort } } : {})
         })
       },
-      request.signal
+      request.signal,
+      request.onProviderEvent
     )
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error
@@ -996,7 +1033,9 @@ async function runGeminiAgentTurn(
     externalContext: request.externalContext,
     purpose: request.purpose,
     target: request.target,
-    recentDesigns: request.recentDesigns
+    recentDesigns: request.recentDesigns,
+    referenceVisuals: request.referenceVisuals,
+    designMemory: request.designMemory
   })
   const model = request.model.replace(/^models\//, '')
   const effort = normalizeEffort('google', model, request.effort)
@@ -1047,7 +1086,8 @@ async function runGeminiAgentTurn(
           }
         })
       },
-      request.signal
+      request.signal,
+      request.onProviderEvent
     )
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error
@@ -1179,7 +1219,9 @@ async function runDeepSeekAgentTurn(
     externalContext: request.externalContext,
     purpose: request.purpose,
     target: request.target,
-    recentDesigns: request.recentDesigns
+    recentDesigns: request.recentDesigns,
+    referenceVisuals: request.referenceVisuals,
+    designMemory: request.designMemory
   })
   const effort = normalizeEffort('deepseek', request.model, request.effort)
 
@@ -1222,7 +1264,8 @@ async function runDeepSeekAgentTurn(
             : {})
         })
       },
-      request.signal
+      request.signal,
+      request.onProviderEvent
     )
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error
@@ -1323,7 +1366,9 @@ async function streamOpenAi(request: StreamRequest): Promise<TokenUsage> {
     externalContext: request.externalContext,
     purpose: request.purpose,
     target: request.target,
-    recentDesigns: request.recentDesigns
+    recentDesigns: request.recentDesigns,
+    referenceVisuals: request.referenceVisuals,
+    designMemory: request.designMemory
   })
   const effort = normalizeEffort('openai', request.model, request.effort)
 
@@ -1347,7 +1392,7 @@ async function streamOpenAi(request: StreamRequest): Promise<TokenUsage> {
           ? { max_output_tokens: 8_000 }
           : {})
       })
-    }, request.signal)
+    }, request.signal, request.onProviderEvent)
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error
     throw new ProviderRequestError('OpenAI could not be reached. Check your connection.')
@@ -1397,7 +1442,9 @@ async function streamAnthropic(request: StreamRequest): Promise<TokenUsage> {
     externalContext: request.externalContext,
     purpose: request.purpose,
     target: request.target,
-    recentDesigns: request.recentDesigns
+    recentDesigns: request.recentDesigns,
+    referenceVisuals: request.referenceVisuals,
+    designMemory: request.designMemory
   })
   const effort = normalizeEffort('anthropic', request.model, request.effort)
 
@@ -1419,7 +1466,7 @@ async function streamAnthropic(request: StreamRequest): Promise<TokenUsage> {
         stream: true,
         ...(effort ? { output_config: { effort } } : {})
       })
-    }, request.signal)
+    }, request.signal, request.onProviderEvent)
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error
     throw new ProviderRequestError('Claude could not be reached. Check your connection.')
@@ -1474,7 +1521,9 @@ async function streamGemini(request: StreamRequest): Promise<TokenUsage> {
     externalContext: request.externalContext,
     purpose: request.purpose,
     target: request.target,
-    recentDesigns: request.recentDesigns
+    recentDesigns: request.recentDesigns,
+    referenceVisuals: request.referenceVisuals,
+    designMemory: request.designMemory
   })
 
   const model = request.model.replace(/^models\//, '')
@@ -1510,7 +1559,7 @@ async function streamGemini(request: StreamRequest): Promise<TokenUsage> {
           ...(thinkingConfig ? { thinkingConfig } : {})
         }
       })
-    }, request.signal)
+    }, request.signal, request.onProviderEvent)
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error
     throw new ProviderRequestError('Gemini could not be reached. Check your connection.')
@@ -1557,7 +1606,9 @@ async function streamDeepSeek(request: StreamRequest): Promise<TokenUsage> {
     externalContext: request.externalContext,
     purpose: request.purpose,
     target: request.target,
-    recentDesigns: request.recentDesigns
+    recentDesigns: request.recentDesigns,
+    referenceVisuals: request.referenceVisuals,
+    designMemory: request.designMemory
   })
   const effort = normalizeEffort('deepseek', request.model, request.effort)
 
@@ -1584,7 +1635,7 @@ async function streamDeepSeek(request: StreamRequest): Promise<TokenUsage> {
           ? { max_tokens: 8_000 }
           : {})
       })
-    }, request.signal)
+    }, request.signal, request.onProviderEvent)
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error
     throw new ProviderRequestError('DeepSeek could not be reached. Check your connection.')

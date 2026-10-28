@@ -14,6 +14,7 @@
     "dev": "electron-vite dev",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
+    "verify:ui": "npm run build && node scripts/verify-ui.mjs",
     "build": "npm run typecheck && electron-vite build",
     "icon": "node scripts/generate-icon.mjs",
     "package": "npm run icon && npm run build && electron-builder",

@@ -6,8 +6,10 @@ import {
   CircleSlash2,
   CloudDownload,
   CornerDownRight,
+  Crop,
   Globe2,
   ImagePlus,
+  ListChecks,
   LoaderCircle,
   MessageCircleQuestion,
   MousePointer2,
@@ -28,6 +30,7 @@ import type {
   AgentActivity,
   AgentQuestion,
   AgentReferenceImage,
+  AgentRunTelemetry,
   AgentToolComparison,
   AgentToolMetrics,
   ChatMessage,
@@ -73,6 +76,10 @@ interface AgentPanelProps {
 const activityIcons = {
   research: Search,
   fetch: CloudDownload,
+  evidence: ListChecks,
+  inspect: ScanSearch,
+  transform: Crop,
+  clarify: MessageCircleQuestion,
   compose: WandSparkles,
   write: PenLine,
   review: ScanSearch
@@ -198,6 +205,11 @@ function ActivityItem({
             <span className="activity-label">{activity.label}</span>
             {detail ? <span className="activity-detail">{detail}</span> : null}
           </span>
+          {activity.durationMs !== undefined ? (
+            <span className="activity-duration">
+              {formatDuration(activity.durationMs)}
+            </span>
+          ) : null}
           {hasResults ? (
             <button
               aria-expanded={expanded}
@@ -243,12 +255,14 @@ function SourceFavicon({
 }): React.JSX.Element {
   const host = faviconHost(source.url)
   const [attempt, setAttempt] = useState(0)
-  const sources = host
-    ? [
-        `https://icons.duckduckgo.com/ip3/${encodeURIComponent(host)}.ico`,
-        `https://www.google.com/s2/favicons?sz=64&domain=${encodeURIComponent(host)}`
-      ]
-    : []
+  const sources = source.faviconUrl
+    ? [source.faviconUrl]
+    : host
+      ? [
+          `https://www.google.com/s2/favicons?sz=64&domain=${encodeURIComponent(host)}`,
+          `https://icons.duckduckgo.com/ip3/${encodeURIComponent(host)}.ico`
+        ]
+      : []
   const icon = sources[attempt]
   return (
     <button
@@ -258,6 +272,9 @@ function SourceFavicon({
       title={`${source.title} - ${source.publisher}`}
       type="button"
     >
+      <span aria-hidden="true" className="source-favicon-fallback">
+        {host.replace(/^www\./, '').charAt(0).toUpperCase() || 'W'}
+      </span>
       {icon ? (
         <img
           alt=""
@@ -288,42 +305,11 @@ function useLiveElapsed(startedAt: number, active: boolean): number {
 }
 
 function AgentWorkingStatus({
-  designMode,
   run
 }: {
-  designMode: DesignMode
   run: AgentRunView
 }): React.JSX.Element {
-  const [phase, setPhase] = useState(0)
   const elapsed = useLiveElapsed(run.startedAt, true)
-  const waitingLabels = [
-    'Reading the brief',
-    'Thinking through the request',
-    'Choosing the next step'
-  ]
-  const writingLabel = {
-    website: 'Building the page',
-    logo: 'Drawing the mark',
-    vector: 'Building the vector',
-    motion: 'Composing the motion'
-  }[designMode]
-  const label = run.designStarted ? writingLabel : waitingLabels[phase]
-
-  useEffect(() => {
-    setPhase(0)
-    if (
-      run.designStarted ||
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    ) {
-      return
-    }
-    const thinking = window.setTimeout(() => setPhase(1), 1_400)
-    const nextStep = window.setTimeout(() => setPhase(2), 3_600)
-    return () => {
-      window.clearTimeout(thinking)
-      window.clearTimeout(nextStep)
-    }
-  }, [run.designStarted, run.startedAt])
 
   return (
     <div
@@ -346,13 +332,19 @@ function AgentWorkingStatus({
           <i />
           <i />
         </span>
-        <span className="agent-working-label" key={label}>
-          {label}
+        <span className="agent-working-label">
+          {run.designStarted
+            ? 'Receiving the artifact'
+            : `Sending request to ${run.modelName}`}
         </span>
       </div>
       <div className="agent-working-row is-pending">
         <span className="agent-working-pending" aria-hidden="true" />
-        <span>Canvas update</span>
+        <span>
+          {run.designStarted
+            ? 'Canvas is updating from the response'
+            : 'Awaiting the provider response'}
+        </span>
       </div>
     </div>
   )
@@ -389,6 +381,17 @@ function ToolMetricsSummary({
         {metrics.evidenceItems}{' '}
         {metrics.evidenceItems === 1 ? 'item' : 'items'}
       </span>
+      {metrics.claims ? (
+        <span>
+          {metrics.claims} {metrics.claims === 1 ? 'claim' : 'claims'}
+        </span>
+      ) : null}
+      {metrics.conflicts ? (
+        <span className="harness-conflict">
+          {metrics.conflicts}{' '}
+          {metrics.conflicts === 1 ? 'conflict' : 'conflicts'}
+        </span>
+      ) : null}
       {metrics.pagesRead ? (
         <span>
           {metrics.pagesRead} {metrics.pagesRead === 1 ? 'page' : 'pages'} read
@@ -420,6 +423,87 @@ function ToolMetricsSummary({
       ) : (
         <span className="harness-delta is-baseline">Baseline run</span>
       )}
+      {typeof comparison?.issuePercent === 'number' ? (
+        <span
+          className={`harness-delta ${
+            comparison.issuePercent < 0
+              ? 'is-down'
+              : comparison.issuePercent > 0
+                ? 'is-up'
+                : 'is-neutral'
+          }`}
+        >
+          {comparison.issuePercent === 0
+            ? 'No finding change'
+            : `${Math.abs(comparison.issuePercent)}% ${
+                comparison.issuePercent > 0 ? 'fewer' : 'more'
+              } findings`}
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
+function TelemetrySummary({
+  telemetry
+}: {
+  telemetry?: AgentRunTelemetry
+}): React.JSX.Element | null {
+  if (!telemetry?.spans.length) return null
+  const firstTokenMs = telemetry.firstTokenAt
+    ? Math.max(
+        0,
+        new Date(telemetry.firstTokenAt).getTime() -
+          new Date(telemetry.requestStartedAt).getTime()
+      )
+    : null
+  const durationFor = (stage: AgentRunTelemetry['spans'][number]['stage']) =>
+    telemetry.spans
+      .filter(
+        (span) => span.stage === stage && span.durationMs !== undefined
+      )
+      .reduce((total, span) => total + (span.durationMs ?? 0), 0)
+  const modelMs = durationFor('model')
+  const toolMs = durationFor('tool')
+  const writeMs = durationFor('write')
+  const runtimeMs = durationFor('runtime')
+  const totalMs = telemetry.completedAt
+    ? new Date(telemetry.completedAt).getTime() -
+      new Date(telemetry.requestStartedAt).getTime()
+    : null
+
+  return (
+    <div className="run-telemetry" aria-label="Measured run timing">
+      {firstTokenMs !== null ? (
+        <span>
+          <strong>{formatDuration(firstTokenMs)}</strong> first token
+        </span>
+      ) : null}
+      {modelMs > 0 ? (
+        <span>
+          <strong>{formatDuration(modelMs)}</strong> model
+        </span>
+      ) : null}
+      {toolMs > 0 ? (
+        <span>
+          <strong>{formatDuration(toolMs)}</strong> tools
+        </span>
+      ) : null}
+      {writeMs > 0 ? (
+        <span>
+          <strong>{formatDuration(writeMs)}</strong> writing
+        </span>
+      ) : null}
+      {runtimeMs > 0 ? (
+        <span>
+          <strong>{formatDuration(runtimeMs)}</strong> browser
+        </span>
+      ) : null}
+      {totalMs !== null ? (
+        <span>
+          <strong>{formatDuration(totalMs)}</strong> total
+        </span>
+      ) : null}
     </div>
   )
 }
@@ -430,7 +514,8 @@ function AgentWorkTimeline({
   comparison,
   metrics,
   run,
-  status
+  status,
+  telemetry
 }: {
   activities: AgentActivity[]
   active: boolean
@@ -438,6 +523,7 @@ function AgentWorkTimeline({
   metrics?: AgentToolMetrics
   run: AgentRunView | null
   status: MessageStatus
+  telemetry?: AgentRunTelemetry
 }): React.JSX.Element | null {
   const visibleActivities = activities.filter(
     (activity) => !['visuals', 'plan'].includes(activity.kind as string)
@@ -547,6 +633,7 @@ function AgentWorkTimeline({
             comparison={comparison}
             metrics={metrics}
           />
+          <TelemetrySummary telemetry={telemetry} />
         </div>
       ) : null}
     </section>
@@ -610,6 +697,7 @@ function MessageBody({
           metrics={message.toolMetrics}
           run={run}
           status={message.status}
+          telemetry={message.telemetry}
         />
       ) : null}
       {message.content && !hideClarificationContent ? (
@@ -643,10 +731,7 @@ function MessageBody({
       ) : null}
 
       {isActiveRun && run && !hasLiveActivity ? (
-        <AgentWorkingStatus
-          designMode={message.designMode ?? run.designMode}
-          run={run}
-        />
+        <AgentWorkingStatus run={run} />
       ) : null}
 
       {message.status === 'error' ? (

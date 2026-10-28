@@ -42,15 +42,15 @@ App data is stored in Electron's per-user data directory. You can open it from *
 1. Choose Website, Logo, Vector or Motion in the agent panel, then describe the subject and what the artifact needs to do.
 2. Add optional visual references by dragging and dropping or pasting up to four PNG, JPEG or WebP images into the composer. Reference images are normalized locally before they reach the selected provider.
 3. The request enters one continuous agent loop. The selected model decides whether to answer immediately or call optional tools, and it can make several tool calls in parallel or across multiple turns.
-4. Available tools are live web search, full source-page reading, direct public-URL reading and visual-asset fetching. Tool use is never forced; a simple request can complete without any external call.
+4. The agent has a native, optional tool set: live web search, source-page reading, direct public-URL reading, real visual-asset fetching, favicon resolution, claim-to-source evaluation, a single blocking-question tool, browser artifact inspection, image cropping, image optimization, palette extraction and posterized image-to-vector tracing. Tool use is never forced and calls can run in parallel or across multiple agent turns.
 5. Tool results return to the same agent conversation. Search results can be opened for full text, and validated visual assets return exact local embed tokens.
-6. The agent streams the complete standalone artifact for the chosen mode. Fetched third-party assets keep their source page for attribution.
-7. The canvas updates while the document arrives and a local three-width review measures the result.
+6. The agent streams the complete standalone artifact for the chosen mode. Fetched third-party assets keep their source page for attribution, and claim evidence is scored for direct support, source quality, freshness and conflicts.
+7. The canvas updates while the document arrives. Review then plays the artifact in a real Electron browser, checks console, resource, accessibility, navigation and overflow failures, captures each responsive viewport, and merges those runtime findings with the local design audit.
 8. Refine the design in the same conversation, switch providers or models, then open or export the HTML.
 
-The agent timeline shows only tool or writing activity that actually happened. While the model is deciding what to do, a live status stack shows the received brief, the current work phase, the pending canvas update, and elapsed time. Tool steps remain expanded while the agent is working, then fold into a clickable completion summary. Opening it restores the full trail, source favicons, query count, pages read, evidence items, total run time, and the percentage change in evidence coverage from the previous run in that conversation. That percentage is an operational comparison, not a universal measure of model intelligence.
+The agent timeline shows only activity emitted by the main process: provider attempts, first token, model turns, each tool call, artifact writing, browser playback and review. Tool steps remain expanded while the agent is working, then fold into a clickable completion summary. Opening it restores the full trail, source favicons, per-stage timings, query count, pages read, evidence and conflicts, total run time, and the measured change in findings for the new revision. Those percentages are operational comparisons, not a universal measure of model intelligence.
 
-Reference images are treated as visual evidence, not instructions. Models without image input keep the composer in a text-only state and explain why before a request can be sent.
+Reference images are treated as visual evidence, not instructions. Kern measures palette, aspect, luminance, contrast, colorfulness and edge density locally, then keeps the reference beside the current browser capture in split and overlay comparison modes. Models without image input keep the composer in a text-only state and explain why before a request can be sent.
 
 The design review records a structural fingerprint for each artifact. New runs receive the last three fingerprints from the same mode and are instructed to change the opening composition, media strategy, background logic, typography character and rhythm. A repeated direction is flagged during review.
 
@@ -63,6 +63,10 @@ The design review records a structural fingerprint for each artifact. New runs r
 
 Project conversations and the latest design source are saved locally and can be reopened from **Designs**.
 
+Reference images, fetched images and browser screenshots are stored as content-addressed files under the local data directory instead of being embedded in `projects.json`. Saved projects refer to the same durable `kern-asset` URLs used by the preview and can be exported with those assets inlined.
+
+Reviewed palettes, type and an optional saved logo or vector mark can be kept in **Design memory**. Approved memory is available to future agent runs as a constraint; it does not force the previous layout, and recent-design diversity still applies.
+
 Before a run, Kern compacts older turns against the selected model's context window while retaining the original brief and recent conversation. A transient provider failure is retried once before any stream is consumed.
 
 ## Verification
@@ -71,9 +75,10 @@ Before a run, Kern compacts older turns against the selected model's context win
 npm run typecheck
 npm test
 npm run build
+npm run verify:ui
 ```
 
-The test suite covers all four provider adapters, native tool-call parsing, multimodal image payloads, live-search fallback, page reading, assistant protocol rules, local history compaction and the renderer's supporting utilities.
+The test suite covers all four provider adapters, native tool-call parsing, multimodal image payloads, live-search fallback, page reading, evidence scoring, content-addressed assets, assistant protocol rules, local history compaction and renderer utilities. `verify:ui` launches the built Electron app with a temporary profile, verifies geometry and zero horizontal overflow, exercises browser review, reference comparison and design memory, and saves screenshots under `.ui-check/`.
 
 ## Provider assets
 

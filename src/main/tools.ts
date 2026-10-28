@@ -872,6 +872,28 @@ function canonicalSourceUrl(value: string): string {
   }
 }
 
+function inferPublishedAt(source: ResearchSource): string | undefined {
+  const text = `${source.title} ${source.snippet}`.slice(0, 2_000)
+  const candidates = [
+    /\b(20\d{2}-\d{2}-\d{2})\b/.exec(text)?.[1],
+    /\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+(?:19|20)\d{2}\b/i.exec(
+      text
+    )?.[0],
+    /\b(?:19|20)\d{2}\b/.exec(text)?.[0]
+  ].filter((value): value is string => Boolean(value))
+  for (const candidate of candidates) {
+    const date = new Date(candidate)
+    if (
+      Number.isFinite(date.getTime()) &&
+      date.getUTCFullYear() >= 1990 &&
+      date.getUTCFullYear() <= new Date().getUTCFullYear() + 1
+    ) {
+      return date.toISOString()
+    }
+  }
+  return undefined
+}
+
 function diversifySources(
   sources: ResearchSource[],
   limit = 8
@@ -917,12 +939,16 @@ export async function researchWeb(
       seen.add(canonical)
       return true
     })
-    .map((source) => ({
-      ...source,
-      url: canonicalSourceUrl(source.url),
-      publisher: hostLabel(source.url),
-      retrievedAt
-    }))
+    .map((source) => {
+      const publishedAt = inferPublishedAt(source)
+      return {
+        ...source,
+        url: canonicalSourceUrl(source.url),
+        publisher: hostLabel(source.url),
+        retrievedAt,
+        ...(publishedAt ? { publishedAt } : {})
+      }
+    })
   return diversifySources(deduplicated).map((source) => ({
     ...source,
     id: `web-${hashText(canonicalSourceUrl(source.url))}`
@@ -968,6 +994,27 @@ export function extractReadablePageContent(html: string): string {
     .slice(0, 7_500)
 }
 
+function extractPublishedAt(html: string): string | undefined {
+  const metadata =
+    /<meta\b[^>]*(?:property|name)\s*=\s*(['"])(?:article:published_time|datePublished|date|publish-date)\1[^>]*content\s*=\s*(['"])([^'"]+)\2/i.exec(
+      html
+    )?.[3] ??
+    /<meta\b[^>]*content\s*=\s*(['"])([^'"]+)\1[^>]*(?:property|name)\s*=\s*(['"])(?:article:published_time|datePublished|date|publish-date)\3/i.exec(
+      html
+    )?.[2] ??
+    /<time\b[^>]*datetime\s*=\s*(['"])([^'"]+)\1/i.exec(html)?.[2]
+  if (!metadata) return undefined
+  const date = new Date(metadata)
+  if (
+    !Number.isFinite(date.getTime()) ||
+    date.getUTCFullYear() < 1990 ||
+    date.getUTCFullYear() > new Date().getUTCFullYear() + 1
+  ) {
+    return undefined
+  }
+  return date.toISOString()
+}
+
 export async function readWebSources(
   sources: ResearchSource[],
   sourceIds: string[],
@@ -981,12 +1028,14 @@ export async function readWebSources(
     selected.map(async (source) => {
       const page = await fetchPublicHtml(source.url, signal)
       const pageContent = extractReadablePageContent(page.html)
+      const publishedAt = extractPublishedAt(page.html)
       if (!pageContent) throw new Error('No readable page text was found.')
       return {
         ...source,
         url: canonicalSourceUrl(page.finalUrl),
         pageContent,
-        retrievedAt: new Date().toISOString()
+        retrievedAt: new Date().toISOString(),
+        ...(publishedAt ? { publishedAt } : {})
       } satisfies ResearchSource
     })
   )
@@ -1010,6 +1059,7 @@ export async function readPublicUrls(
         htmlToText(/<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(page.html)?.[1] ?? '') ||
         hostLabel(page.finalUrl)
       const pageContent = extractReadablePageContent(page.html)
+      const publishedAt = extractPublishedAt(page.html)
       return {
         id: `url-${hashText(page.finalUrl)}`,
         title: title.slice(0, 180),
@@ -1017,7 +1067,8 @@ export async function readPublicUrls(
         publisher: hostLabel(page.finalUrl),
         snippet: pageContent.slice(0, 520),
         pageContent,
-        retrievedAt: new Date().toISOString()
+        retrievedAt: new Date().toISOString(),
+        ...(publishedAt ? { publishedAt } : {})
       } satisfies ResearchSource
     })
   )

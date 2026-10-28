@@ -123,4 +123,42 @@ describe('assistant protocol', () => {
     expect(prompt).toContain('hero=split; media=graphic')
     expect(prompt).toContain('materially different in at least the hero structure')
   })
+
+  it('gives measured reference data and approved memory precise constraints', () => {
+    const prompt = buildSystemPrompt({
+      currentDesign: '',
+      referenceVisuals: [
+        {
+          imageId: 'reference-1',
+          name: 'Editorial reference',
+          width: 1440,
+          height: 1080,
+          aspectRatio: 1.33,
+          palette: ['#1b566d', '#f0eee8'],
+          averageLuminance: 0.58,
+          contrast: 0.54,
+          colorfulness: 0.27,
+          edgeDensity: 0.31,
+          transparent: false
+        }
+      ],
+      designMemory: [
+        {
+          id: 'memory-1',
+          kind: 'brand-kit',
+          name: 'Northline',
+          designMode: 'website',
+          palette: ['#1b566d', '#f0eee8'],
+          fonts: ['Georgia'],
+          createdAt: '2026-10-28T10:00:00.000Z'
+        }
+      ],
+      now
+    })
+
+    expect(prompt).toContain('reference:reference-1')
+    expect(prompt).toContain('palette=#1b566d, #f0eee8')
+    expect(prompt).toContain('Approved design memory')
+    expect(prompt).toContain('do not repeat its layout')
+  })
 })

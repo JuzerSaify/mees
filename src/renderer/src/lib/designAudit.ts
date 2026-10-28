@@ -1,4 +1,5 @@
 import type {
+  ArtifactRuntimeReport,
   DesignAudit,
   DesignIssue,
   DesignMode,
@@ -291,10 +292,14 @@ const run=()=>{
     if(unnamedButtons>0)addIssue(issues,seen,'unnamed-control','warning','Control needs a name',unnamedButtons+' control'+(unnamedButtons===1?' has':'s have')+' no accessible name.',buttonExample,9);
     for(const el of visible){
       const s=getComputedStyle(el);
-      const color=normalizeColor(s.backgroundColor||s.color);
-      if(color)paletteCounts.set(color,(paletteCounts.get(color)||0)+1);
+      const background=normalizeColor(s.backgroundColor);
+      if(background)paletteCounts.set(background,(paletteCounts.get(background)||0)+1);
       const hasOwnText=Array.from(el.childNodes).some(n=>n.nodeType===Node.TEXT_NODE&&n.textContent.trim());
       const ownText=hasOwnText?String(el.textContent||'').replace(/\\s+/g,' ').trim():'';
+      if(hasOwnText){
+        const foreground=normalizeColor(s.color);
+        if(foreground)paletteCounts.set(foreground,(paletteCounts.get(foreground)||0)+1);
+      }
       const rect=el.getBoundingClientRect();
       const area=Math.max(0,rect.width*rect.height);
       if(hasOwnText&&ownText.length>=2&&ownText.length<=64){
@@ -965,6 +970,38 @@ export async function auditArtifactDesign(
     return auditMotionDesign(html, revision)
   }
   return auditDesign(html, revision)
+}
+
+export function mergeRuntimeArtifactReport(
+  audit: DesignAudit,
+  runtime: ArtifactRuntimeReport
+): DesignAudit {
+  const runtimeIssues: DesignIssue[] = runtime.issues.map((issue, index) => ({
+    id: `${issue.viewport}-${issue.rule}-workspace-${index}`,
+    viewport: issue.viewport,
+    severity: issue.severity,
+    rule: issue.rule,
+    title: issue.title,
+    detail: issue.detail,
+    selector: issue.selector
+  }))
+  const issues = [...audit.issues, ...runtimeIssues]
+  return {
+    ...audit,
+    issueCount: groupDesignIssues(issues).length,
+    issues,
+    viewports: audit.viewports.map((viewport) => ({
+      ...viewport,
+      issues: [
+        ...viewport.issues,
+        ...runtimeIssues.filter(
+          (issue) => issue.viewport === viewport.viewport
+        )
+      ]
+    })),
+    runtime,
+    screenshots: runtime.screenshots
+  }
 }
 
 export async function fingerprintDesign(

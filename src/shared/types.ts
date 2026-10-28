@@ -96,13 +96,20 @@ export interface AgentToolMetrics {
   toolCalls?: number
   pagesRead?: number
   sources: number
+  claims?: number
+  conflicts?: number
   fetchedAssets?: number
   evidenceItems: number
   durationMs: number
+  firstTokenMs?: number
+  toolDurationMs?: number
+  writeDurationMs?: number
 }
 
 export interface AgentToolComparison {
   evidencePercent: number | null
+  issuePercent?: number | null
+  runtimePercent?: number | null
 }
 
 export interface ResearchSource {
@@ -113,6 +120,39 @@ export interface ResearchSource {
   snippet: string
   pageContent?: string
   retrievedAt?: string
+  publishedAt?: string
+  quality?: 'official' | 'primary' | 'editorial' | 'reference' | 'unknown'
+  faviconUrl?: string
+}
+
+export interface EvidenceItem {
+  id: string
+  claim: string
+  verdict: 'supported' | 'partial' | 'conflicting' | 'unsupported'
+  sourceIds: string[]
+  citations: Array<{
+    title: string
+    url: string
+    publisher: string
+    retrievedAt?: string
+  }>
+  qualityScore: number
+  freshnessScore: number
+  notes: string[]
+}
+
+export interface ReferenceVisualSummary {
+  imageId: string
+  name: string
+  width: number
+  height: number
+  aspectRatio: number
+  palette: string[]
+  averageLuminance: number
+  contrast: number
+  colorfulness: number
+  edgeDensity: number
+  transparent: boolean
 }
 
 export interface AgentReferenceImage {
@@ -122,6 +162,7 @@ export interface AgentReferenceImage {
   width: number
   height: number
   dataUrl: string
+  visualSummary?: ReferenceVisualSummary
 }
 
 export interface DesignSelection {
@@ -151,6 +192,7 @@ export interface FetchedVisualAsset {
   width?: number
   height?: number
   dataUrl: string
+  role?: 'asset' | 'reference' | 'screenshot' | 'derived'
 }
 
 export interface EditPatch {
@@ -162,6 +204,10 @@ export interface EditPatch {
 export type AgentActivityKind =
   | 'research'
   | 'fetch'
+  | 'evidence'
+  | 'inspect'
+  | 'transform'
+  | 'clarify'
   | 'compose'
   | 'write'
   | 'review'
@@ -180,7 +226,33 @@ export interface AgentActivity {
   status: AgentActivityStatus
   startedAt: string
   finishedAt?: string
+  durationMs?: number
   sources?: ResearchSource[]
+}
+
+export type AgentTelemetryStage =
+  | 'model'
+  | 'tool'
+  | 'write'
+  | 'review'
+  | 'runtime'
+
+export interface AgentTelemetrySpan {
+  id: string
+  stage: AgentTelemetryStage
+  label: string
+  status: AgentActivityStatus
+  startedAt: string
+  finishedAt?: string
+  durationMs?: number
+  detail?: string
+}
+
+export interface AgentRunTelemetry {
+  requestStartedAt: string
+  firstTokenAt?: string
+  completedAt?: string
+  spans: AgentTelemetrySpan[]
 }
 
 export interface ChatMessage {
@@ -195,9 +267,12 @@ export interface ChatMessage {
   designMode?: DesignMode
   target?: DesignSelection
   referenceImages?: AgentReferenceImage[]
+  referenceVisuals?: ReferenceVisualSummary[]
   clarification?: AgentQuestion
   toolMetrics?: AgentToolMetrics
   toolComparison?: AgentToolComparison
+  evidence?: EvidenceItem[]
+  telemetry?: AgentRunTelemetry
   error?: string
   activities?: AgentActivity[]
 }
@@ -219,6 +294,7 @@ export interface AppProject {
 export interface AppSnapshot {
   settings: KernSettings
   projects: AppProject[]
+  designMemory: DesignMemoryEntry[]
 }
 
 export interface PreferencesUpdate {
@@ -246,6 +322,8 @@ export interface StartAgentRequest {
   reviewNotes?: string
   target?: DesignSelection
   recentDesigns?: RecentDesignSummary[]
+  referenceVisuals?: ReferenceVisualSummary[]
+  designMemory?: DesignMemoryEntry[]
 }
 
 export type DesignViewport = 'desktop' | 'tablet' | 'mobile'
@@ -295,6 +373,45 @@ export interface DesignAudit {
   viewports: DesignViewportAudit[]
   palette: string[]
   fonts: string[]
+  runtime?: ArtifactRuntimeReport
+  screenshots?: DesignScreenshot[]
+}
+
+export interface DesignScreenshot {
+  viewport: DesignViewport
+  width: number
+  height: number
+  assetUrl: string
+  createdAt: string
+}
+
+export interface ArtifactRuntimeIssue {
+  viewport: DesignViewport
+  rule: string
+  severity: DesignIssueSeverity
+  title: string
+  detail: string
+  selector?: string
+}
+
+export interface ArtifactRuntimeReport {
+  capturedAt: string
+  durationMs: number
+  consoleErrors: string[]
+  pageErrors: string[]
+  networkFailures: string[]
+  issues: ArtifactRuntimeIssue[]
+  screenshots: DesignScreenshot[]
+  document: {
+    title: string
+    language: string
+    headings: string[]
+    landmarks: string[]
+    controls: number
+    links: number
+    images: number
+    forms: number
+  }
 }
 
 export interface DesignVersion {
@@ -303,6 +420,29 @@ export interface DesignVersion {
   designHtml: string
   createdAt: string
   revision: number
+}
+
+export type DesignMemoryKind =
+  | 'brand-kit'
+  | 'palette'
+  | 'typography'
+  | 'logo'
+  | 'asset'
+  | 'component'
+
+export interface DesignMemoryEntry {
+  id: string
+  kind: DesignMemoryKind
+  name: string
+  designMode: DesignMode
+  palette: string[]
+  fonts: string[]
+  fingerprint?: DesignFingerprint
+  sourceProjectId?: string
+  sourceTitle?: string
+  artifactHtml?: string
+  assetUrls?: string[]
+  createdAt: string
 }
 
 export interface TokenUsage {
@@ -319,6 +459,8 @@ export type AgentStreamEvent =
       assets: FetchedVisualAsset[]
     }
   | { requestId: string; type: 'question'; question: AgentQuestion }
+  | { requestId: string; type: 'evidence'; evidence: EvidenceItem[] }
+  | { requestId: string; type: 'telemetry'; telemetry: AgentRunTelemetry }
   | {
       requestId: string
       type: 'done'
@@ -342,6 +484,12 @@ export interface KernApi {
   savePreferences: (update: PreferencesUpdate) => Promise<AppSnapshot>
   saveProject: (project: AppProject) => Promise<AppProject>
   deleteProject: (projectId: string) => Promise<void>
+  captureArtifact: (
+    html: string,
+    mode: DesignMode
+  ) => Promise<ArtifactRuntimeReport>
+  saveDesignMemory: (entry: DesignMemoryEntry) => Promise<AppSnapshot>
+  deleteDesignMemory: (entryId: string) => Promise<AppSnapshot>
   startAgent: (request: StartAgentRequest) => Promise<{ requestId: string }>
   cancelAgent: (requestId: string) => Promise<void>
   onAgentEvent: (listener: (event: AgentStreamEvent) => void) => () => void
@@ -365,6 +513,9 @@ export const IPC_CHANNELS = {
   savePreferences: 'kern:save-preferences',
   saveProject: 'kern:save-project',
   deleteProject: 'kern:delete-project',
+  captureArtifact: 'kern:capture-artifact',
+  saveDesignMemory: 'kern:save-design-memory',
+  deleteDesignMemory: 'kern:delete-design-memory',
   startAgent: 'kern:start-agent',
   cancelAgent: 'kern:cancel-agent',
   agentEvent: 'kern:agent-event',

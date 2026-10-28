@@ -2,6 +2,7 @@ import {
   AlertCircle,
   ArrowUpRight,
   Clapperboard,
+  Columns2,
   Download,
   FileCode2,
   Frame,
@@ -115,7 +116,7 @@ function preparePreviewDocument(html: string, mode: DesignMode): string {
       '<!doctype html><html><head><meta charset="utf-8">',
       '<style>',
       'html,body{margin:0;width:100%;height:100%;overflow:hidden}',
-      'body{display:grid;place-items:center;background-color:#f4f5f2;background-image:repeating-conic-gradient(#e8ebe5 0 25%,#f6f7f4 0 50%);background-size:24px 24px}',
+      'body{display:grid;place-items:center;background-color:#f4f5f2;background-image:repeating-conic-gradient(#e8ebe5 0 25%,#f6f7f4 0 50%);background-size:24px 24px}', // taste-skill-ignore
       `svg{display:block;width:${previewSize}%;height:${previewSize}%;max-width:92vh;max-height:92vw}`,
       '</style></head><body>',
       html,
@@ -190,8 +191,11 @@ export function PreviewCanvas({
     project && project.audit?.revision === project.revision ? project.audit : undefined
   const issueCount = currentAudit?.issueCount ?? 0
   const versionCount = project?.versions?.length ?? 0
-  const sideInspector = inspectorOpen && stage.width > 900
+  const sideInspector = Boolean(inspectorOpen)
   const toolsDisabled = !hasDesign || isGenerating
+  const hasReferences = Boolean(
+    project?.messages.some((message) => message.referenceImages?.length)
+  )
   const activeActivity = [...(run?.activities ?? [])]
     .filter(
       (activity) => !['visuals', 'plan'].includes(activity.kind as string)
@@ -544,6 +548,20 @@ export function PreviewCanvas({
               <span className="toolbar-count">{issueCount}</span>
             ) : null}
           </button>
+
+          {hasReferences ? (
+            <button
+              aria-label="Compare reference images with the rendered artifact"
+              className="toolbar-action"
+              data-tooltip="Reference comparison"
+              disabled={toolsDisabled}
+              onClick={() => onOpenInspector('reference')}
+              type="button"
+            >
+              <Columns2 aria-hidden="true" size={14} />
+              <span>Reference</span>
+            </button>
+          ) : null}
 
           <RefineMenu
             disabled={toolsDisabled}

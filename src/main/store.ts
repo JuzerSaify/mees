@@ -7,6 +7,7 @@ import {
   type AppProject,
   type AppSnapshot,
   type DesignAudit,
+  type DesignMemoryEntry,
   type DesignVersion,
   type DesignMode,
   type KernSettings,
@@ -22,6 +23,7 @@ import {
   type EffortLevel
 } from '../shared/effort'
 import { filterModelCatalog } from '../shared/model-catalog'
+import { AssetStore } from './asset-store'
 
 interface StoredProvider {
   encryptedApiKey: string
@@ -44,6 +46,11 @@ interface StoredSettings {
 interface StoredProjects {
   version: 1
   projects: AppProject[]
+}
+
+interface StoredDesignMemory {
+  version: 1
+  entries: DesignMemoryEntry[]
 }
 
 function defaultSettings(): StoredSettings {
@@ -222,23 +229,115 @@ function sanitizeAudit(value: unknown): DesignAudit | undefined {
       : [],
     fonts: Array.isArray(audit.fonts)
       ? audit.fonts.filter((font): font is string => typeof font === 'string').slice(0, 5)
-      : []
+      : [],
+    ...(audit.runtime && typeof audit.runtime === 'object'
+      ? { runtime: audit.runtime as DesignAudit['runtime'] }
+      : {}),
+    ...(Array.isArray(audit.screenshots)
+      ? { screenshots: audit.screenshots as DesignAudit['screenshots'] }
+      : {})
   }
+}
+
+function sanitizeDesignMemory(value: unknown): DesignMemoryEntry[] {
+  if (!value || typeof value !== 'object') return []
+  const record = value as Record<string, unknown>
+  if (!Array.isArray(record.entries)) return []
+  const kinds = new Set([
+    'brand-kit',
+    'palette',
+    'typography',
+    'logo',
+    'asset',
+    'component'
+  ])
+  return record.entries
+    .filter(
+      (entry): entry is Record<string, unknown> =>
+        Boolean(entry) && typeof entry === 'object'
+    )
+    .flatMap((entry) => {
+      if (
+        typeof entry.id !== 'string' ||
+        typeof entry.name !== 'string' ||
+        typeof entry.kind !== 'string' ||
+        !kinds.has(entry.kind) ||
+        !isDesignMode(entry.designMode)
+      ) {
+        return []
+      }
+      const textArray = (candidate: unknown, limit: number): string[] =>
+        Array.isArray(candidate)
+          ? candidate
+              .filter((item): item is string => typeof item === 'string')
+              .map((item) => item.slice(0, 160))
+              .slice(0, limit)
+          : []
+      return [
+        {
+          id: entry.id.slice(0, 80),
+          kind: entry.kind as DesignMemoryEntry['kind'],
+          name: entry.name.trim().slice(0, 80),
+          designMode: entry.designMode,
+          palette: textArray(entry.palette, 8),
+          fonts: textArray(entry.fonts, 4),
+          ...(entry.fingerprint && typeof entry.fingerprint === 'object'
+            ? {
+                fingerprint:
+                  entry.fingerprint as DesignMemoryEntry['fingerprint']
+              }
+            : {}),
+          ...(typeof entry.sourceProjectId === 'string'
+            ? { sourceProjectId: entry.sourceProjectId.slice(0, 80) }
+            : {}),
+          ...(typeof entry.sourceTitle === 'string'
+            ? { sourceTitle: entry.sourceTitle.slice(0, 120) }
+            : {}),
+          ...(typeof entry.artifactHtml === 'string'
+            ? { artifactHtml: entry.artifactHtml.slice(0, 180_000) }
+            : {}),
+          ...(Array.isArray(entry.assetUrls)
+            ? {
+                assetUrls: entry.assetUrls
+                  .filter(
+                    (value): value is string =>
+                      typeof value === 'string' &&
+                      value.length <= 4_500_000
+                  )
+                  .slice(0, 8)
+              }
+            : {}),
+          createdAt:
+            typeof entry.createdAt === 'string'
+              ? entry.createdAt
+              : new Date(0).toISOString()
+        }
+      ]
+    })
+    .slice(-40)
 }
 
 export class KernStore {
   readonly dataDirectory = app.getPath('userData')
+  readonly assetStore = new AssetStore(this.dataDirectory)
   private readonly settingsPath = join(this.dataDirectory, 'settings.json')
   private readonly projectsPath = join(this.dataDirectory, 'projects.json')
+  private readonly designMemoryPath = join(
+    this.dataDirectory,
+    'design-memory.json'
+  )
   private settings = defaultSettings()
   private projects: AppProject[] = []
+  private designMemory: DesignMemoryEntry[] = []
   private settingsTask: Promise<void> = Promise.resolve()
   private projectsTask: Promise<void> = Promise.resolve()
+  private memoryTask: Promise<void> = Promise.resolve()
   private initialized = false
 
   async init(): Promise<void> {
     if (this.initialized) return
     await mkdir(this.dataDirectory, { recursive: true })
+    await this.assetStore.init()
 
     try {
       const raw = await readFile(this.settingsPath, 'utf8')
@@ -249,9 +348,58 @@ export class KernStore {
 
     try {
       const raw = await readFile(this.projectsPath, 'utf8')
-      this.projects = sanitizeProjects(JSON.parse(raw))
+      const projects = sanitizeProjects(JSON.parse(raw))
+      this.projects = await Promise.all(
+        projects.map((project) => this.assetStore.assetizeProject(project))
+      )
+      if (raw.includes('data:image/')) {
+        await this.writeJson(this.projectsPath, {
+          version: 1,
+          projects: this.projects
+        } satisfies StoredProjects)
+      }
     } catch {
       this.projects = []
+    }
+
+    try {
+      const raw = await readFile(this.designMemoryPath, 'utf8')
+      this.designMemory = sanitizeDesignMemory(JSON.parse(raw))
+      const assetizedMemory = await Promise.all(
+        this.designMemory.map(async (entry) => {
+          const assetUrls = entry.assetUrls?.length
+            ? await Promise.all(
+                entry.assetUrls.map(async (value) => {
+                  if (!value.startsWith('data:')) return value
+                  return (
+                    (await this.assetStore.saveDataUrl(value, 'reference'))
+                      ?.token ?? value
+                  )
+                })
+              )
+            : undefined
+          return {
+            ...entry,
+            ...(entry.artifactHtml
+              ? {
+                  artifactHtml: await this.assetStore.assetizeHtml(
+                    entry.artifactHtml
+                  )
+                }
+              : {}),
+            ...(assetUrls?.length ? { assetUrls } : {})
+          }
+        })
+      )
+      this.designMemory = assetizedMemory
+      if (raw.includes('data:image/')) {
+        await this.writeJson(this.designMemoryPath, {
+          version: 1,
+          entries: this.designMemory
+        } satisfies StoredDesignMemory)
+      }
+    } catch {
+      this.designMemory = []
     }
 
     this.initialized = true
@@ -291,6 +439,22 @@ export class KernStore {
       return result
     })
     this.projectsTask = task.then(
+      () => undefined,
+      () => undefined
+    )
+    return task
+  }
+
+  private async mutateMemory<T>(mutator: () => Promise<T> | T): Promise<T> {
+    const task = this.memoryTask.then(async () => {
+      const result = await mutator()
+      await this.writeJson(this.designMemoryPath, {
+        version: 1,
+        entries: this.designMemory
+      } satisfies StoredDesignMemory)
+      return result
+    })
+    this.memoryTask = task.then(
       () => undefined,
       () => undefined
     )
@@ -391,7 +555,11 @@ export class KernStore {
   }
 
   async getSnapshot(): Promise<AppSnapshot> {
-    await Promise.all([this.settingsTask, this.projectsTask])
+    await Promise.all([
+      this.settingsTask,
+      this.projectsTask,
+      this.memoryTask
+    ])
     const activeProvider = this.normalizedActiveProvider()
     const activeModel = this.normalizedActiveModel()
     const activeEffort = this.normalizedActiveEffort()
@@ -410,7 +578,8 @@ export class KernStore {
 
     return {
       settings,
-      projects: [...this.projects].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      projects: [...this.projects].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+      designMemory: [...this.designMemory]
     }
   }
 
@@ -586,18 +755,55 @@ export class KernStore {
       ...project,
       updatedAt: new Date().toISOString()
     }
+    const storedProject = await this.assetStore.assetizeProject(nextProject)
     await this.mutateProjects(() => {
       const index = this.projects.findIndex((item) => item.id === project.id)
-      if (index >= 0) this.projects[index] = nextProject
-      else this.projects.push(nextProject)
+      if (index >= 0) this.projects[index] = storedProject
+      else this.projects.push(storedProject)
       this.projects.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     })
-    return nextProject
+    return storedProject
   }
 
   async deleteProject(projectId: string): Promise<void> {
     await this.mutateProjects(() => {
       this.projects = this.projects.filter((project) => project.id !== projectId)
+    })
+  }
+
+  async saveDesignMemory(entry: DesignMemoryEntry): Promise<void> {
+    const sanitized = sanitizeDesignMemory({
+      version: 1,
+      entries: [entry]
+    })[0]
+    if (!sanitized) throw new Error('That design memory entry is invalid.')
+    const artifactHtml = sanitized.artifactHtml
+      ? await this.assetStore.assetizeHtml(sanitized.artifactHtml)
+      : undefined
+    const assetUrls = await Promise.all(
+      (sanitized.assetUrls ?? []).map(async (url) => {
+        if (!url.startsWith('data:')) return url
+        const stored = await this.assetStore.saveDataUrl(url, 'reference')
+        return stored?.token ?? url
+      })
+    )
+    await this.mutateMemory(() => {
+      this.designMemory = [
+        ...this.designMemory.filter((item) => item.id !== sanitized.id),
+        {
+          ...sanitized,
+          ...(artifactHtml ? { artifactHtml } : {}),
+          ...(assetUrls.length ? { assetUrls } : {})
+        }
+      ].slice(-40)
+    })
+  }
+
+  async deleteDesignMemory(entryId: string): Promise<void> {
+    await this.mutateMemory(() => {
+      this.designMemory = this.designMemory.filter(
+        (entry) => entry.id !== entryId
+      )
     })
   }
 }

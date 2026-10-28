@@ -4,6 +4,7 @@ import {
   dialog,
   ipcMain,
   Menu,
+  protocol,
   session,
   shell,
   type WebContents
@@ -16,8 +17,15 @@ import {
   IPC_CHANNELS,
   PROVIDER_IDS,
   type AgentActivity,
+  type AgentQuestion,
   type AgentReferenceImage,
+  type AgentRunTelemetry,
+  type AgentTelemetrySpan,
   type AgentStreamEvent,
+  type ArtifactRuntimeReport,
+  type DesignMemoryEntry,
+  type EvidenceItem,
+  type ReferenceVisualSummary,
   type AgentToolMetrics,
   type AppProject,
   type DesignMode,
@@ -47,6 +55,14 @@ import {
   describeAgentTool,
   executeAgentTool
 } from './agent-tools'
+import {
+  ASSET_PROTOCOL,
+  assetFileNameFromUrl,
+  isAssetUrl,
+  type AssetStore
+} from './asset-store'
+import { captureArtifactRuntime } from './artifact-runtime'
+import { attachSourceIcons } from './source-icons'
 
 const currentDirectory = fileURLToPath(new URL('.', import.meta.url))
 const isDevelopment = Boolean(process.env.ELECTRON_RENDERER_URL)
@@ -54,6 +70,18 @@ const isDevelopment = Boolean(process.env.ELECTRON_RENDERER_URL)
 let mainWindow: BrowserWindow | null = null
 let store: KernStore
 app.setName('Kern')
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: ASSET_PROTOCOL,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true
+    }
+  }
+])
 
 if (!app.isPackaged && process.env.KERN_USER_DATA_DIR) {
   app.setPath('userData', process.env.KERN_USER_DATA_DIR)
@@ -64,6 +92,24 @@ const agentRequests = new Map<
   { controller: AbortController; sender: WebContents }
 >()
 const previewWindows = new Set<BrowserWindow>()
+
+async function registerDefaultAssetProtocol(assets: AssetStore): Promise<void> {
+  await session.defaultSession.protocol.handle(
+    ASSET_PROTOCOL,
+    async (request) => {
+      const fileName = assetFileNameFromUrl(request.url)
+      const asset = fileName ? await assets.read(fileName) : null
+      if (!asset) return new Response('Asset not found', { status: 404 })
+      return new Response(asset.bytes, {
+        status: 200,
+        headers: {
+          'Content-Type': asset.contentType,
+          'Cache-Control': 'public, max-age=31536000, immutable'
+        }
+      })
+    }
+  )
+}
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 if (!hasSingleInstanceLock) {
@@ -212,12 +258,77 @@ function finishActivity(
   detail?: string,
   result?: Pick<AgentActivity, 'sources'>
 ): AgentActivity {
+  const finishedAt = new Date().toISOString()
   return {
     ...activity,
     ...result,
     status,
     detail: detail ?? activity.detail,
-    finishedAt: new Date().toISOString()
+    finishedAt,
+    durationMs: Math.max(
+      0,
+      new Date(finishedAt).getTime() - new Date(activity.startedAt).getTime()
+    )
+  }
+}
+
+function startTelemetrySpan(
+  stage: AgentTelemetrySpan['stage'],
+  label: string,
+  detail?: string
+): AgentTelemetrySpan {
+  return {
+    id: randomUUID(),
+    stage,
+    label,
+    detail,
+    status: 'running',
+    startedAt: new Date().toISOString()
+  }
+}
+
+function finishTelemetrySpan(
+  span: AgentTelemetrySpan,
+  status: Exclude<AgentTelemetrySpan['status'], 'running'>,
+  detail?: string
+): AgentTelemetrySpan {
+  const finishedAt = new Date().toISOString()
+  return {
+    ...span,
+    status,
+    detail: detail ?? span.detail,
+    finishedAt,
+    durationMs: Math.max(
+      0,
+      new Date(finishedAt).getTime() - new Date(span.startedAt).getTime()
+    )
+  }
+}
+
+function upsertTelemetrySpan(
+  spans: AgentTelemetrySpan[],
+  span: AgentTelemetrySpan
+): AgentTelemetrySpan[] {
+  const index = spans.findIndex((entry) => entry.id === span.id)
+  if (index === -1) return [...spans, span]
+  return spans.map((entry, entryIndex) =>
+    entryIndex === index ? span : entry
+  )
+}
+
+async function persistAgentAsset(
+  asset: FetchedVisualAsset
+): Promise<FetchedVisualAsset & { previousToken?: string }> {
+  if (!asset.dataUrl.startsWith('data:')) {
+    return { ...asset, dataUrl: asset.token }
+  }
+  const stored = await store.assetStore.saveDataUrl(asset.dataUrl, 'asset')
+  if (!stored) return asset
+  return {
+    ...asset,
+    token: stored.token,
+    dataUrl: stored.token,
+    previousToken: asset.token
   }
 }
 
@@ -349,10 +460,13 @@ function sanitizeReferenceImages(value: unknown): AgentReferenceImage[] {
     const record = entry as Record<string, unknown>
     const dataUrl =
       typeof record.dataUrl === 'string' ? record.dataUrl.trim() : ''
-    const match = /^data:(image\/(?:png|jpeg|webp));base64,([a-z0-9+/=\s]+)$/i.exec(
-      dataUrl
-    )
-    if (!match?.[1] || !match[2] || dataUrl.length > 4_500_000) continue
+    const match =
+      /^data:(image\/(?:png|jpeg|webp));base64,([a-z0-9+/=\s]+)$/i.exec(
+        dataUrl
+      )
+    const stored = assetFileNameFromUrl(dataUrl)
+    if ((!match?.[1] || !match[2]) && !stored) continue
+    if (dataUrl.length > 4_500_000) continue
     const width =
       typeof record.width === 'number' && Number.isFinite(record.width)
         ? Math.round(record.width)
@@ -362,10 +476,16 @@ function sanitizeReferenceImages(value: unknown): AgentReferenceImage[] {
         ? Math.round(record.height)
         : 0
     if (width < 24 || height < 24 || width > 4096 || height > 4096) continue
-    const mimeType = match[1].toLocaleLowerCase('en') as
+    const mimeType = (
+      match?.[1]?.toLocaleLowerCase('en') ?? 'image/webp'
+    ) as
       | 'image/png'
       | 'image/jpeg'
       | 'image/webp'
+    const summary =
+      record.visualSummary && typeof record.visualSummary === 'object'
+        ? sanitizeReferenceVisualSummary(record.visualSummary)
+        : undefined
     images.push({
       id:
         typeof record.id === 'string' && record.id.trim()
@@ -378,10 +498,47 @@ function sanitizeReferenceImages(value: unknown): AgentReferenceImage[] {
       mimeType,
       width,
       height,
-      dataUrl
+      dataUrl,
+      ...(summary ? { visualSummary: summary } : {})
     })
   }
   return images
+}
+
+function sanitizeReferenceVisualSummary(
+  value: unknown
+): ReferenceVisualSummary | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  if (
+    typeof record.imageId !== 'string' ||
+    typeof record.name !== 'string' ||
+    !Array.isArray(record.palette)
+  ) {
+    return undefined
+  }
+  const number = (input: unknown, min: number, max: number): number =>
+    typeof input === 'number' && Number.isFinite(input)
+      ? Math.max(min, Math.min(max, input))
+      : 0
+  return {
+    imageId: record.imageId.slice(0, 80),
+    name: record.name.slice(0, 120),
+    width: Math.round(number(record.width, 1, 20_000)),
+    height: Math.round(number(record.height, 1, 20_000)),
+    aspectRatio: number(record.aspectRatio, 0.01, 100),
+    palette: record.palette
+      .filter(
+        (color): color is string =>
+          typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color)
+      )
+      .slice(0, 8),
+    averageLuminance: number(record.averageLuminance, 0, 1),
+    contrast: number(record.contrast, 0, 1),
+    colorfulness: number(record.colorfulness, 0, 1),
+    edgeDensity: number(record.edgeDensity, 0, 1),
+    transparent: record.transparent === true
+  }
 }
 
 function sanitizeRecentDesigns(value: unknown): RecentDesignSummary[] {
@@ -426,6 +583,91 @@ function sanitizeRecentDesigns(value: unknown): RecentDesignSummary[] {
       ]
     })
     .slice(0, 4)
+}
+
+function sanitizeDesignMemory(value: unknown): DesignMemoryEntry[] {
+  if (!Array.isArray(value)) return []
+  const allowedKinds = new Set<DesignMemoryEntry['kind']>([
+    'brand-kit',
+    'palette',
+    'typography',
+    'logo',
+    'asset',
+    'component'
+  ])
+  return value
+    .filter(
+      (entry): entry is Record<string, unknown> =>
+        Boolean(entry) && typeof entry === 'object'
+    )
+    .flatMap((entry) => {
+      const designMode = entry.designMode
+      if (
+        typeof entry.id !== 'string' ||
+        typeof entry.name !== 'string' ||
+        typeof entry.kind !== 'string' ||
+        !allowedKinds.has(entry.kind as DesignMemoryEntry['kind']) ||
+        (designMode !== 'website' &&
+          designMode !== 'logo' &&
+          designMode !== 'vector' &&
+          designMode !== 'motion')
+      ) {
+        return []
+      }
+      return [
+        {
+          id: entry.id.slice(0, 80),
+          kind: entry.kind as DesignMemoryEntry['kind'],
+          name: entry.name.trim().slice(0, 80),
+          designMode: designMode as DesignMode,
+          palette: Array.isArray(entry.palette)
+            ? entry.palette
+                .filter(
+                  (color): color is string =>
+                    typeof color === 'string' &&
+                    /^#[0-9a-f]{6}$/i.test(color)
+                )
+                .slice(0, 8)
+            : [],
+          fonts: Array.isArray(entry.fonts)
+            ? entry.fonts
+                .filter((font): font is string => typeof font === 'string')
+                .slice(0, 4)
+            : [],
+          ...(entry.fingerprint && typeof entry.fingerprint === 'object'
+            ? {
+                fingerprint:
+                  entry.fingerprint as DesignMemoryEntry['fingerprint']
+              }
+            : {}),
+          ...(typeof entry.sourceProjectId === 'string'
+            ? { sourceProjectId: entry.sourceProjectId.slice(0, 80) }
+            : {}),
+          ...(typeof entry.sourceTitle === 'string'
+            ? { sourceTitle: entry.sourceTitle.slice(0, 120) }
+            : {}),
+          ...(typeof entry.artifactHtml === 'string'
+            ? { artifactHtml: entry.artifactHtml.slice(0, 180_000) }
+            : {}),
+          ...(Array.isArray(entry.assetUrls)
+            ? {
+                assetUrls: entry.assetUrls
+                  .filter(
+                    (value): value is string =>
+                      typeof value === 'string' && isAssetUrl(value)
+                  )
+                  .map((value) => value.slice(0, 400))
+                  .slice(0, 8)
+              }
+            : {}),
+          createdAt:
+            typeof entry.createdAt === 'string'
+              ? entry.createdAt
+              : new Date().toISOString()
+        }
+      ]
+    })
+    .slice(0, 6)
 }
 
 function sanitizeAgentRequest(value: unknown): StartAgentRequest {
@@ -509,7 +751,21 @@ function sanitizeAgentRequest(value: unknown): StartAgentRequest {
         ? request.reviewNotes.slice(0, 8000)
         : undefined,
     target: mode === 'targeted-edit' ? target : undefined,
-    recentDesigns: sanitizeRecentDesigns(request.recentDesigns)
+    recentDesigns: sanitizeRecentDesigns(request.recentDesigns),
+    referenceVisuals: Array.isArray(request.referenceVisuals)
+      ? request.referenceVisuals
+          .slice(0, 8)
+          .map((entry) => sanitizeReferenceVisualSummary(entry))
+          .filter(
+            (entry): entry is ReferenceVisualSummary => Boolean(entry)
+          )
+      : history
+          .flatMap((message) => message.referenceImages ?? [])
+          .flatMap((image) =>
+            image.visualSummary ? [image.visualSummary] : []
+          )
+          .slice(0, 8),
+    designMemory: sanitizeDesignMemory(request.designMemory)
   }
 }
 
@@ -657,6 +913,49 @@ function registerIpc(): void {
     await store.deleteProject(rawProjectId)
   })
 
+  ipcMain.handle(
+    IPC_CHANNELS.captureArtifact,
+    async (
+      _event,
+      rawHtml: unknown,
+      rawMode: unknown
+    ): Promise<ArtifactRuntimeReport> => {
+      if (typeof rawHtml !== 'string' || !rawHtml.trim()) {
+        throw new Error('There is no rendered artifact to inspect.')
+      }
+      if (rawHtml.length > 300_000) {
+        throw new Error('The rendered artifact is too large to inspect.')
+      }
+      return captureArtifactRuntime(
+        rawHtml,
+        validateDesignMode(rawMode),
+        store.assetStore
+      )
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.saveDesignMemory,
+    async (_event, rawEntry: unknown) => {
+      if (!rawEntry || typeof rawEntry !== 'object') {
+        throw new Error('Invalid design memory entry.')
+      }
+      await store.saveDesignMemory(rawEntry as DesignMemoryEntry)
+      return store.getSnapshot()
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.deleteDesignMemory,
+    async (_event, rawEntryId: unknown) => {
+      if (typeof rawEntryId !== 'string' || !rawEntryId.trim()) {
+        throw new Error('Invalid design memory entry.')
+      }
+      await store.deleteDesignMemory(rawEntryId)
+      return store.getSnapshot()
+    }
+  )
+
   ipcMain.handle(IPC_CHANNELS.startAgent, async (event, rawRequest: unknown) => {
     const inputRequest = sanitizeAgentRequest(rawRequest)
     const snapshot = await store.getSnapshot()
@@ -679,7 +978,24 @@ function registerIpc(): void {
       )
     }
 
-    const compacted = compactAgentHistory(inputRequest.history, {
+    const hydratedHistory = await Promise.all(
+      inputRequest.history.map(async (message) => ({
+        ...message,
+        ...(message.referenceImages?.length
+          ? {
+              referenceImages: await Promise.all(
+                message.referenceImages.map(async (image) => ({
+                  ...image,
+                  dataUrl:
+                    (await store.assetStore.toDataUrl(image.dataUrl)) ??
+                    image.dataUrl
+                }))
+              )
+            }
+          : {})
+      }))
+    )
+    const compacted = compactAgentHistory(hydratedHistory, {
       contextWindow: modelInfo.contextWindow,
       currentDesignChars: inputRequest.currentDesign.length
     })
@@ -702,9 +1018,74 @@ function registerIpc(): void {
             : {})
         })
       )
+      const referenceAssets: Record<string, string> = {}
+      for (const message of inputRequest.history) {
+        for (const image of message.referenceImages ?? []) {
+          const token = isAssetUrl(image.dataUrl)
+            ? image.dataUrl
+            : (
+                await store.assetStore.saveDataUrl(
+                  image.dataUrl,
+                  'reference'
+                )
+              )?.token
+          if (token) referenceAssets[image.id] = token
+        }
+      }
       const toolState = {
         sources: [] as ResearchSource[],
-        assets: [] as FetchedVisualAsset[]
+        assets: [] as FetchedVisualAsset[],
+        evidence: [] as EvidenceItem[],
+        currentDesign: inputRequest.currentDesign,
+        referenceAssets,
+        readAsset: async (token: string) => {
+          const fileName = assetFileNameFromUrl(token)
+          if (!fileName) return null
+          const asset = await store.assetStore.read(fileName)
+          return asset
+            ? { bytes: asset.bytes, contentType: asset.contentType }
+            : null
+        },
+        writeAsset: async (
+          bytes: Uint8Array,
+          contentType: string,
+          metadata: {
+            title: string
+            pageUrl?: string
+            sourceUrl?: string
+            width?: number
+            height?: number
+            kind?: FetchedVisualAsset['kind']
+            role?: FetchedVisualAsset['role']
+          }
+        ): Promise<FetchedVisualAsset> => {
+          const stored = await store.assetStore.saveBytes(
+            bytes,
+            contentType,
+            metadata.role ?? 'derived'
+          )
+          const id = stored.fileName.replace(/\.[^.]+$/, '')
+          return {
+            id,
+            token: stored.token,
+            kind: metadata.kind ?? 'image',
+            title: metadata.title.slice(0, 180),
+            pageUrl: metadata.pageUrl ?? stored.token,
+            sourceUrl: metadata.sourceUrl ?? stored.token,
+            contentType: stored.contentType,
+            byteLength: stored.byteLength,
+            width: metadata.width,
+            height: metadata.height,
+            dataUrl: stored.token,
+            role: metadata.role ?? 'derived'
+          }
+        },
+        inspectArtifact: (html: string) =>
+          captureArtifactRuntime(
+            html,
+            inputRequest.designMode,
+            store.assetStore
+          )
       }
       const harnessStartedAt = Date.now()
       const harnessStats = {
@@ -714,10 +1095,15 @@ function registerIpc(): void {
         toolCalls: 0,
         pagesRead: 0
       }
+      const telemetry: AgentRunTelemetry = {
+        requestStartedAt: new Date(harnessStartedAt).toISOString(),
+        spans: []
+      }
       let usage: TokenUsage | undefined
-      let writeActivity: AgentActivity | null = null
+      let writeSpan: AgentTelemetrySpan | null = null
       let writeFinished = false
       let completed = false
+      let streamedModelText = ''
 
       const emitActivity = (activity: AgentActivity): void => {
         if (controller.signal.aborted || event.sender.isDestroyed()) return
@@ -728,59 +1114,168 @@ function registerIpc(): void {
         })
       }
 
+      const emitTelemetry = (): void => {
+        if (controller.signal.aborted || event.sender.isDestroyed()) return
+        sendAgentEvent(event.sender, {
+          requestId,
+          type: 'telemetry',
+          telemetry: {
+            ...telemetry,
+            spans: [...telemetry.spans]
+          }
+        })
+      }
+
       const startWriting = (): void => {
-        if (writeActivity || writeFinished) return
-        writeActivity = newActivity(
+        if (writeSpan || writeFinished) return
+        writeSpan = startTelemetrySpan(
           'write',
-          request.mode === 'targeted-edit'
-            ? 'Writing the selected edit'
-            : 'Writing the artifact',
-          'Streaming the completed agent response into the canvas'
+          'Streaming the artifact',
+          'Writing the provider response into the canvas'
         )
-        emitActivity(writeActivity)
+        telemetry.spans = upsertTelemetrySpan(
+          telemetry.spans,
+          writeSpan
+        )
+        emitTelemetry()
       }
 
       const finishWriting = (
         status: 'complete' | 'error' | 'cancelled',
         detail: string
       ): void => {
-        if (!writeActivity || writeFinished) return
+        if (!writeSpan || writeFinished) return
         writeFinished = true
-        emitActivity(finishActivity(writeActivity, status, detail))
+        writeSpan = finishTelemetrySpan(writeSpan, status, detail)
+        telemetry.spans = upsertTelemetrySpan(
+          telemetry.spans,
+          writeSpan
+        )
+        emitTelemetry()
       }
 
       try {
-        const maxToolSteps = 6
+        const maxToolSteps = 12
         for (let step = 0; step <= maxToolSteps; step += 1) {
           if (controller.signal.aborted) {
             throw new DOMException('Request cancelled', 'AbortError')
           }
-          const turn = await runAgentTurn({
-            provider: request.provider,
-            model: request.model,
-            effort: request.effort,
-            apiKey,
-            currentDesign: request.currentDesign,
-            designMode: request.designMode,
-            mode: request.mode,
-            reviewNotes: request.reviewNotes,
-            target: request.target,
-            recentDesigns: request.recentDesigns,
-            purpose:
-              request.mode === 'targeted-edit' ? 'targeted-edit' : 'design',
-            messages: conversation,
-            tools: step < maxToolSteps ? AGENT_TOOLS : [],
-            signal: controller.signal,
-            onDelta: (delta) => {
-              if (controller.signal.aborted || event.sender.isDestroyed()) return
-              startWriting()
-              sendAgentEvent(event.sender, {
-                requestId,
-                type: 'delta',
-                delta
-              })
-            }
-          })
+          const modelSpan = startTelemetrySpan(
+            'model',
+            step === 0 ? 'Understanding the brief' : 'Continuing the agent loop',
+            `Provider turn ${step + 1}`
+          )
+          const modelActivity = newActivity(
+            'compose',
+            step === 0
+              ? 'Understanding the brief'
+              : 'Continuing the agent loop',
+            `Provider turn ${step + 1}`
+          )
+          emitActivity(modelActivity)
+          telemetry.spans = upsertTelemetrySpan(
+            telemetry.spans,
+            modelSpan
+          )
+          emitTelemetry()
+          let turn
+          try {
+            turn = await runAgentTurn({
+              provider: request.provider,
+              model: request.model,
+              effort: request.effort,
+              apiKey,
+              currentDesign: request.currentDesign,
+              designMode: request.designMode,
+              mode: request.mode,
+              reviewNotes: request.reviewNotes,
+              target: request.target,
+              recentDesigns: request.recentDesigns,
+              referenceVisuals: request.referenceVisuals,
+              designMemory: request.designMemory,
+              purpose:
+                request.mode === 'targeted-edit' ? 'targeted-edit' : 'design',
+              messages: conversation,
+              tools: step < maxToolSteps ? AGENT_TOOLS : [],
+              signal: controller.signal,
+              onProviderEvent: (providerEvent) => {
+                const detail =
+                  providerEvent.type === 'retry'
+                    ? `Provider ${providerEvent.status ?? 'error'}; retrying as attempt ${providerEvent.attempt} after ${Math.round((providerEvent.delayMs ?? 0) / 100) / 10}s`
+                    : providerEvent.type === 'connected'
+                      ? `Provider connected on attempt ${providerEvent.attempt}${providerEvent.status ? ` (${providerEvent.status})` : ''}`
+                      : `Sending provider request, attempt ${providerEvent.attempt}`
+                telemetry.spans = telemetry.spans.map((span) =>
+                  span.id === modelSpan.id ? { ...span, detail } : span
+                )
+                emitTelemetry()
+              },
+              onDelta: (delta) => {
+                if (controller.signal.aborted || event.sender.isDestroyed()) return
+                streamedModelText += delta
+                if (!telemetry.firstTokenAt) {
+                  telemetry.firstTokenAt = new Date().toISOString()
+                  emitTelemetry()
+                }
+                if (
+                  /:::\s*design\b|<design\b|<!doctype\s+html\b|<html\b|<svg\b/i.test(
+                    streamedModelText
+                  )
+                ) {
+                  startWriting()
+                }
+                sendAgentEvent(event.sender, {
+                  requestId,
+                  type: 'delta',
+                  delta
+                })
+              }
+            })
+            telemetry.spans = upsertTelemetrySpan(
+              telemetry.spans,
+              finishTelemetrySpan(
+                modelSpan,
+                'complete',
+                turn.toolCalls.length
+                  ? `${turn.toolCalls.length} tool ${
+                      turn.toolCalls.length === 1 ? 'call' : 'calls'
+                    } selected`
+                  : 'Model response returned'
+              )
+            )
+            emitActivity(
+              finishActivity(
+                modelActivity,
+                'complete',
+                turn.toolCalls.length
+                  ? `${turn.toolCalls.length} next ${
+                      turn.toolCalls.length === 1 ? 'tool' : 'tools'
+                    } selected`
+                  : 'Response returned'
+              )
+            )
+            emitTelemetry()
+          } catch (error) {
+            telemetry.spans = upsertTelemetrySpan(
+              telemetry.spans,
+              finishTelemetrySpan(
+                modelSpan,
+                controller.signal.aborted ? 'cancelled' : 'error',
+                error instanceof Error ? error.message.slice(0, 240) : undefined
+              )
+            )
+            emitActivity(
+              finishActivity(
+                modelActivity,
+                controller.signal.aborted ? 'cancelled' : 'error',
+                error instanceof Error
+                  ? error.message.slice(0, 240)
+                  : undefined
+              )
+            )
+            emitTelemetry()
+            throw error
+          }
           usage = combineUsage(usage, turn.usage)
 
           if (turn.toolCalls.length === 0) {
@@ -815,6 +1310,7 @@ function registerIpc(): void {
             }
           }
 
+          let pendingQuestion: AgentQuestion | undefined
           const results = await Promise.all(
             turn.toolCalls.map(async (call) => {
               const description = describeAgentTool(call)
@@ -824,14 +1320,44 @@ function registerIpc(): void {
                 description.detail
               )
               emitActivity(activity)
+              const telemetrySpan = startTelemetrySpan(
+                'tool',
+                description.label,
+                description.detail
+              )
+              telemetry.spans = upsertTelemetrySpan(
+                telemetry.spans,
+                telemetrySpan
+              )
+              emitTelemetry()
               try {
                 const execution = await executeAgentTool(
                   call,
                   toolState,
                   controller.signal
                 )
+                telemetry.spans = upsertTelemetrySpan(
+                  telemetry.spans,
+                  finishTelemetrySpan(
+                    telemetrySpan,
+                    'complete',
+                    execution.content.slice(0, 220)
+                  )
+                )
+                emitTelemetry()
                 return { call, activity, execution }
               } catch (error) {
+                telemetry.spans = upsertTelemetrySpan(
+                  telemetry.spans,
+                  finishTelemetrySpan(
+                    telemetrySpan,
+                    controller.signal.aborted ? 'cancelled' : 'error',
+                    error instanceof Error
+                      ? error.message.slice(0, 240)
+                      : undefined
+                  )
+                )
+                emitTelemetry()
                 return { call, activity, error }
               }
             })
@@ -840,7 +1366,30 @@ function registerIpc(): void {
           for (const result of results) {
             if ('execution' in result && result.execution) {
               const execution = result.execution
+              if (execution.assets?.length) {
+                const persistedAssets = await Promise.all(
+                  execution.assets.map(async (asset) => {
+                    const persisted = await persistAgentAsset(asset)
+                    if (
+                      persisted.previousToken &&
+                      persisted.previousToken !== persisted.token
+                    ) {
+                      execution.content = execution.content
+                        .split(persisted.previousToken)
+                        .join(persisted.token)
+                    }
+                    const { previousToken: _previousToken, ...clean } =
+                      persisted
+                    return clean
+                  })
+                )
+                execution.assets = persistedAssets
+              }
               if (execution.sources?.length) {
+                execution.sources = await attachSourceIcons(
+                  execution.sources,
+                  store.assetStore
+                )
                 toolState.sources = mergeResearchSources(
                   toolState.sources,
                   execution.sources
@@ -861,6 +1410,26 @@ function registerIpc(): void {
                     assets: toolState.assets
                   })
                 }
+              }
+              if (execution.evidence?.length) {
+                toolState.evidence = Array.from(
+                  new Map(
+                    [
+                      ...(toolState.evidence ?? []),
+                      ...execution.evidence
+                    ].map((item) => [item.id, item])
+                  ).values()
+                ).slice(-24)
+                if (!event.sender.isDestroyed()) {
+                  sendAgentEvent(event.sender, {
+                    requestId,
+                    type: 'evidence',
+                    evidence: toolState.evidence
+                  })
+                }
+              }
+              if (execution.question) {
+                pendingQuestion = execution.question
               }
               const sourceCount = execution.sources?.length ?? 0
               const assetCount = execution.assets?.length ?? 0
@@ -915,15 +1484,54 @@ function registerIpc(): void {
               })
             }
           }
+
+          if (pendingQuestion) {
+            finishWriting('complete', 'Waiting for the blocking decision')
+            telemetry.completedAt = new Date().toISOString()
+            telemetry.spans = telemetry.spans.map((span) =>
+              span.status === 'running'
+                ? finishTelemetrySpan(
+                    span,
+                    'complete',
+                    'Waiting for the user decision'
+                  )
+                : span
+            )
+            emitTelemetry()
+            sendAgentEvent(event.sender, {
+              requestId,
+              type: 'question',
+              question: pendingQuestion
+            })
+            return
+          }
         }
 
         if (!completed) {
           throw new Error('The agent reached its tool limit without a final response.')
         }
         finishWriting('complete', 'Response complete')
+        telemetry.completedAt = new Date().toISOString()
+        emitTelemetry()
         if (controller.signal.aborted) {
           sendAgentEvent(event.sender, { requestId, type: 'cancelled' })
         } else {
+          const firstTokenMs = telemetry.firstTokenAt
+            ? new Date(telemetry.firstTokenAt).getTime() -
+              harnessStartedAt
+            : undefined
+          const toolDurationMs = telemetry.spans
+            .filter(
+              (span) =>
+                span.stage === 'tool' && span.status === 'complete'
+            )
+            .reduce((total, span) => total + (span.durationMs ?? 0), 0)
+          const writeDurationMs = telemetry.spans
+            .filter(
+              (span) =>
+                span.stage === 'write' && span.status === 'complete'
+            )
+            .reduce((total, span) => total + (span.durationMs ?? 0), 0)
           const metrics: AgentToolMetrics = {
             rounds: harnessStats.rounds,
             parallelBatches: harnessStats.parallelBatches,
@@ -933,8 +1541,17 @@ function registerIpc(): void {
             sources: toolState.sources.length,
             fetchedAssets: toolState.assets.length,
             evidenceItems:
-              toolState.sources.length + toolState.assets.length,
-            durationMs: Date.now() - harnessStartedAt
+              toolState.sources.length +
+              toolState.assets.length +
+              toolState.evidence.length,
+            claims: toolState.evidence.length,
+            conflicts: toolState.evidence.filter(
+              (item) => item.verdict === 'conflicting'
+            ).length,
+            durationMs: Date.now() - harnessStartedAt,
+            ...(firstTokenMs !== undefined ? { firstTokenMs } : {}),
+            toolDurationMs,
+            writeDurationMs
           }
           sendAgentEvent(event.sender, {
             requestId,
@@ -946,6 +1563,13 @@ function registerIpc(): void {
       } catch (error) {
         if (controller.signal.aborted) {
           finishWriting('cancelled', 'Stopped')
+          telemetry.completedAt = new Date().toISOString()
+          telemetry.spans = telemetry.spans.map((span) =>
+            span.status === 'running'
+              ? finishTelemetrySpan(span, 'cancelled', 'Stopped')
+              : span
+          )
+          emitTelemetry()
           sendAgentEvent(event.sender, { requestId, type: 'cancelled' })
           return
         }
@@ -954,6 +1578,13 @@ function registerIpc(): void {
             ? error.message
             : 'The provider request failed unexpectedly.'
         finishWriting('error', message.slice(0, 500))
+        telemetry.completedAt = new Date().toISOString()
+        telemetry.spans = telemetry.spans.map((span) =>
+          span.status === 'running'
+            ? finishTelemetrySpan(span, 'error', message.slice(0, 240))
+            : span
+        )
+        emitTelemetry()
         sendAgentEvent(event.sender, {
           requestId,
           type: 'error',
@@ -1003,7 +1634,8 @@ function registerIpc(): void {
         ? await dialog.showSaveDialog(mainWindow, options)
         : await dialog.showSaveDialog(options)
       if (result.canceled || !result.filePath) return { saved: false }
-      await writeFile(result.filePath, rawHtml, 'utf8')
+      const exportedHtml = await store.assetStore.hydrateHtml(rawHtml)
+      await writeFile(result.filePath, exportedHtml, 'utf8')
       return { saved: true, filePath: result.filePath }
     }
   )
@@ -1086,6 +1718,7 @@ async function boot(): Promise<void> {
   app.setAppUserModelId('studio.kern.desktop')
   store = new KernStore()
   await store.init()
+  await registerDefaultAssetProtocol(store.assetStore)
   registerIpc()
 
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {

@@ -4,6 +4,8 @@ import {
   type AgentStreamEvent,
   type AppProject,
   type AppSnapshot,
+  type ArtifactRuntimeReport,
+  type DesignMemoryEntry,
   type DesignMode,
   type ExportResult,
   type KernApi,
@@ -28,6 +30,22 @@ const api: KernApi = {
     ipcRenderer.invoke(IPC_CHANNELS.saveProject, project) as Promise<AppProject>,
   deleteProject: (projectId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.deleteProject, projectId) as Promise<void>,
+  captureArtifact: (html: string, mode: DesignMode) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.captureArtifact,
+      html,
+      mode
+    ) as Promise<ArtifactRuntimeReport>,
+  saveDesignMemory: (entry: DesignMemoryEntry) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.saveDesignMemory,
+      entry
+    ) as Promise<AppSnapshot>,
+  deleteDesignMemory: (entryId: string) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.deleteDesignMemory,
+      entryId
+    ) as Promise<AppSnapshot>,
   startAgent: (request: StartAgentRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.startAgent, request) as Promise<{ requestId: string }>,
   cancelAgent: (requestId: string) =>

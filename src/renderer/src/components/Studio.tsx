@@ -16,7 +16,9 @@ import {
   type AgentReferenceImage,
   type AppProject,
   type AppSnapshot,
+  type ArtifactRuntimeReport,
   type ChatMessage,
+  type DesignMemoryEntry,
   type DesignMode,
   type DesignFingerprint,
   type RecentDesignSummary,
@@ -40,7 +42,8 @@ import {
 import {
   auditArtifactDesign,
   fingerprintDesign,
-  formatAuditForAgent
+  formatAuditForAgent,
+  mergeRuntimeArtifactReport
 } from '../lib/designAudit'
 import { addDesignVersion } from '../lib/designVersions'
 import { errorMessage } from '../lib/errors'
@@ -273,7 +276,8 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
       designHtml: string,
       revision: number,
       announceFailure = false,
-      messageId?: string
+      messageId?: string,
+      previousIssueCount?: number
     ): Promise<void> => {
       if (!designHtml.trim()) return
       const sequence = auditSequenceRef.current + 1
@@ -304,10 +308,53 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
         const designMode =
           projectsRef.current.find((project) => project.id === projectId)
             ?.designMode ?? 'website'
-        const measuredAudit = await auditArtifactDesign(
-          designHtml,
-          revision,
-          designMode
+        const reviewStartedAt = new Date().toISOString()
+        const [localResult, runtimeResult] = await Promise.allSettled([
+          auditArtifactDesign(designHtml, revision, designMode),
+          window.kern?.captureArtifact(designHtml, designMode)
+        ])
+        if (localResult.status === 'rejected') throw localResult.reason
+        const runtimeMessage =
+          runtimeResult.status === 'rejected'
+            ? errorMessage(runtimeResult.reason)
+            : runtimeResult.value
+              ? ''
+              : 'The desktop browser bridge is unavailable.'
+        const runtime: ArtifactRuntimeReport =
+          runtimeResult.status === 'fulfilled' && runtimeResult.value
+            ? runtimeResult.value
+            : {
+                capturedAt: new Date().toISOString(),
+                durationMs: 0,
+                consoleErrors: [],
+                pageErrors: [runtimeMessage],
+                networkFailures: [],
+                issues: [
+                  {
+                    viewport: 'desktop',
+                    rule: 'runtime-verification-unavailable',
+                    severity: 'error',
+                    title: 'Browser verification did not run',
+                    detail:
+                      runtimeMessage ||
+                      'The artifact could not be played in the local browser.'
+                  }
+                ],
+                screenshots: [],
+                document: {
+                  title: '',
+                  language: '',
+                  headings: [],
+                  landmarks: [],
+                  controls: 0,
+                  links: 0,
+                  images: 0,
+                  forms: 0
+                }
+              }
+        const measuredAudit = mergeRuntimeArtifactReport(
+          localResult.value,
+          runtime
         )
         const audit = applyDesignMemoryReview(
           measuredAudit,
@@ -327,22 +374,78 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
             }
             const reviewed = { ...project, audit }
             if (!messageId || !reviewActivity) return reviewed
-            return withMessageActivity(reviewed, messageId, {
+            const reviewedAt = new Date()
+            const reviewDuration = Math.max(
+              0,
+              reviewedAt.getTime() - new Date(reviewStartedAt).getTime()
+            )
+            const issuePercent =
+              previousIssueCount && previousIssueCount > 0
+                ? Math.round(
+                    ((previousIssueCount - audit.issueCount) /
+                      previousIssueCount) *
+                      1000
+                  ) / 10
+                : null
+            const activity = {
               ...reviewActivity,
-              status: 'complete',
+              status: 'complete' as const,
               detail: audit.issueCount
                 ? `${audit.issueCount} ${
                     audit.issueCount === 1 ? 'issue' : 'issues'
-                  } found ${
-                    designMode === 'website'
-                      ? 'across three widths'
-                      : 'in the artifact review'
-                  }`
-                : designMode === 'website'
-                  ? 'No measured structural issues'
-                  : 'No measured artifact issues',
-              finishedAt: new Date().toISOString()
-            })
+                  } found after browser playback`
+                : 'Browser playback passed',
+              finishedAt: reviewedAt.toISOString(),
+              durationMs: reviewDuration
+            }
+            const withReview = withMessageActivity(
+              reviewed,
+              messageId,
+              activity
+            )
+            return {
+              ...withReview,
+              messages: withReview.messages.map((message) =>
+                message.id === messageId
+                  ? {
+                      ...message,
+                      toolComparison: {
+                        ...(message.toolComparison ?? {
+                          evidencePercent: null
+                        }),
+                        issuePercent
+                      },
+                      telemetry: {
+                        ...(message.telemetry ?? {
+                          requestStartedAt: reviewStartedAt,
+                          spans: []
+                        }),
+                        spans: [
+                          ...(message.telemetry?.spans ?? []).filter(
+                            (span) => span.stage !== 'runtime'
+                          ),
+                          {
+                            id: crypto.randomUUID(),
+                            stage: 'runtime' as const,
+                            label: 'Testing in a real browser',
+                            status: 'complete' as const,
+                            startedAt: reviewStartedAt,
+                            finishedAt: reviewedAt.toISOString(),
+                            durationMs: runtime?.durationMs ?? reviewDuration,
+                            detail: runtime
+                              ? `${runtime.screenshots.length} screenshot${
+                                  runtime.screenshots.length === 1 ? '' : 's'
+                                }, ${runtime.issues.length} runtime issue${
+                                  runtime.issues.length === 1 ? '' : 's'
+                                }`
+                              : 'Runtime capture unavailable'
+                          }
+                        ]
+                      }
+                    }
+                  : message
+              )
+            }
           })
         )
         const reviewed = nextProjects.find((project) => project.id === projectId)
@@ -515,6 +618,44 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
       if (event.type === 'assets') {
         commitRun({ ...activeRun, assets: event.assets })
         if (rawRef.current) scheduleFlush()
+        return
+      }
+
+      if (event.type === 'evidence') {
+        commitRun({ ...activeRun, evidence: event.evidence })
+        updateProjects((current) =>
+          current.map((project) =>
+            project.id === activeRun.projectId
+              ? {
+                  ...project,
+                  messages: project.messages.map((message) =>
+                    message.id === activeRun.assistantMessageId
+                      ? { ...message, evidence: event.evidence }
+                      : message
+                  )
+                }
+              : project
+          )
+        )
+        return
+      }
+
+      if (event.type === 'telemetry') {
+        commitRun({ ...activeRun, telemetry: event.telemetry })
+        updateProjects((current) =>
+          current.map((project) =>
+            project.id === activeRun.projectId
+              ? {
+                  ...project,
+                  messages: project.messages.map((message) =>
+                    message.id === activeRun.assistantMessageId
+                      ? { ...message, telemetry: event.telemetry }
+                      : message
+                  )
+                }
+              : project
+          )
+        )
         return
       }
 
@@ -691,7 +832,8 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
                   completed.designHtml,
                   completed.revision,
                   false,
-                  currentRun.assistantMessageId
+                  currentRun.assistantMessageId,
+                  currentRun.baselineIssueCount
                 )
               }
             }
@@ -820,7 +962,8 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
               completed.designHtml,
               completed.revision,
               false,
-              currentRun.assistantMessageId
+              currentRun.assistantMessageId,
+              currentRun.baselineIssueCount
             )
           }
         }
@@ -968,7 +1111,13 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
           designMode,
           target: options?.target,
           ...(options?.referenceImages?.length
-            ? { referenceImages: options.referenceImages }
+            ? {
+                referenceImages: options.referenceImages,
+                referenceVisuals: options.referenceImages
+                  .flatMap((image) =>
+                    image.visualSummary ? [image.visualSummary] : []
+                  )
+              }
             : {})
         }
       : null
@@ -982,7 +1131,12 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
       model: modelInfo.name,
       effort: effort ?? undefined,
       designMode,
-      activities: []
+      activities: [],
+      evidence: [],
+      telemetry: {
+        requestStartedAt: new Date(now).toISOString(),
+        spans: []
+      }
     }
 
     const messagesWithUser = userMessage
@@ -1050,8 +1204,14 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
       mode: options?.mode ?? 'design',
       designMode,
       target: options?.target,
+      baselineIssueCount: project.audit?.issueCount,
       assets: [],
-      activities: []
+      activities: [],
+      evidence: [],
+      telemetry: {
+        requestStartedAt: new Date(now).toISOString(),
+        spans: []
+      }
     }
     commitRun(startingRun)
 
@@ -1062,6 +1222,21 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
         designMode,
         fingerprintCacheRef.current
       )
+      const referenceVisuals = messagesWithUser
+        .flatMap((message) => message.referenceImages ?? [])
+        .flatMap((image) =>
+          image.visualSummary ? [image.visualSummary] : []
+        )
+        .slice(0, 8)
+      const designMemory = snapshot.designMemory
+        .filter(
+          (entry) =>
+            entry.designMode === designMode ||
+            entry.kind === 'brand-kit' ||
+            entry.kind === 'palette' ||
+            entry.kind === 'typography'
+        )
+        .slice(-6)
       const result = await window.kern?.startAgent({
         provider,
         model,
@@ -1072,7 +1247,9 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
         mode: options?.mode ?? 'design',
         reviewNotes: options?.reviewNotes,
         target: options?.target,
-        recentDesigns
+        recentDesigns,
+        referenceVisuals,
+        designMemory
       })
       if (!result) throw new Error('The desktop bridge is unavailable.')
       const latestRun = runRef.current
@@ -1160,7 +1337,7 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
     setInspectorTab(tab)
     setAuditError('')
     if (
-      tab === 'review' &&
+      (tab === 'review' || tab === 'reference' || tab === 'memory') &&
       (activeProject.audit?.revision !== activeProject.revision ||
         !activeProject.audit) &&
       auditRunningFor !== activeProject.id
@@ -1364,6 +1541,84 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
     }
   }
 
+  async function saveCurrentDesignMemory(): Promise<void> {
+    if (!activeProject?.audit || !window.kern) return
+    const audit =
+      activeProject.audit.revision === activeProject.revision
+        ? activeProject.audit
+        : undefined
+    if (!audit) {
+      showToast('Review this draft before saving its design system.', 'error')
+      return
+    }
+    const entry: DesignMemoryEntry = {
+      id: `memory-${activeProject.id}-${activeProject.revision}`,
+      kind:
+        activeProject.designMode === 'logo'
+          ? 'logo'
+          : 'brand-kit',
+      name: activeProject.title.slice(0, 80),
+      designMode: activeProject.designMode,
+      palette: audit.palette,
+      fonts: audit.fonts,
+      fingerprint: audit.viewports.find(
+        (viewport) => viewport.viewport === 'desktop'
+      )?.fingerprint,
+      sourceProjectId: activeProject.id,
+      sourceTitle: activeProject.title,
+      ...(activeProject.designMode === 'logo' ||
+      activeProject.designMode === 'vector'
+        ? { artifactHtml: activeProject.designHtml }
+        : {}),
+      createdAt: new Date().toISOString()
+    }
+    try {
+      const next = await window.kern.saveDesignMemory(entry)
+      onSnapshot(next)
+      showToast('Saved the direction to design memory.', 'success')
+    } catch (caught) {
+      showToast(errorMessage(caught), 'error')
+      throw caught
+    }
+  }
+
+  async function saveReferenceMemory(
+    image: AgentReferenceImage
+  ): Promise<void> {
+    if (!activeProject || !window.kern) return
+    const entry: DesignMemoryEntry = {
+      id: `reference-${activeProject.id}-${image.id}`,
+      kind: 'asset',
+      name: image.name,
+      designMode: activeProject.designMode,
+      palette: image.visualSummary?.palette ?? [],
+      fonts: [],
+      sourceProjectId: activeProject.id,
+      sourceTitle: activeProject.title,
+      assetUrls: [image.dataUrl],
+      createdAt: new Date().toISOString()
+    }
+    try {
+      const next = await window.kern.saveDesignMemory(entry)
+      onSnapshot(next)
+      showToast('Saved the reference as an approved asset.', 'success')
+    } catch (caught) {
+      showToast(errorMessage(caught), 'error')
+      throw caught
+    }
+  }
+
+  async function deleteDesignMemoryEntry(entryId: string): Promise<void> {
+    if (!window.kern) return
+    try {
+      const next = await window.kern.deleteDesignMemory(entryId)
+      onSnapshot(next)
+    } catch (caught) {
+      showToast(errorMessage(caught), 'error')
+      throw caught
+    }
+  }
+
   async function openPreview(): Promise<void> {
     if (!activeProject?.designHtml) return
     try {
@@ -1530,8 +1785,10 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
               activeTab={inspectorTab}
               auditError={auditError}
               auditing={isAuditingActive}
+              designMemory={snapshot.designMemory}
               isGenerating={isGenerating}
               onClose={() => setInspectorTab(null)}
+              onDeleteMemory={deleteDesignMemoryEntry}
               onFixIssues={fixMeasuredIssues}
               onRestoreVersion={restoreVersion}
               onRunReview={() =>
@@ -1539,9 +1796,13 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
                   activeProject.id,
                   activeProject.designHtml,
                   activeProject.revision,
-                  true
+                  true,
+                  undefined,
+                  activeProject.audit?.issueCount
                 )
               }
+              onSaveReference={saveReferenceMemory}
+              onSaveMemory={saveCurrentDesignMemory}
               onTabChange={openInspector}
               project={activeProject}
             />

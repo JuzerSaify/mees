@@ -1,8 +1,10 @@
 import type {
   AgentActivity,
+  AgentRunTelemetry,
   AgentToolMetrics,
   DesignMode,
   DesignSelection,
+  EvidenceItem,
   FetchedVisualAsset,
   ProviderId,
   TokenUsage
@@ -31,8 +33,11 @@ export interface AgentRunView {
   mode: 'design' | 'polish' | 'targeted-edit'
   designMode: DesignMode
   target?: DesignSelection
+  baselineIssueCount?: number
   assets: FetchedVisualAsset[]
   activities: AgentActivity[]
+  evidence: EvidenceItem[]
+  telemetry: AgentRunTelemetry
   metrics?: AgentToolMetrics
   error?: string
   usage?: TokenUsage
