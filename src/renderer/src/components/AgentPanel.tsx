@@ -274,6 +274,19 @@ function SourceFavicon({
   )
 }
 
+function useLiveElapsed(startedAt: number, active: boolean): number {
+  const [now, setNow] = useState(Date.now())
+
+  useEffect(() => {
+    setNow(Date.now())
+    if (!active) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000)
+    return () => window.clearInterval(timer)
+  }, [active, startedAt])
+
+  return active ? Math.max(0, now - startedAt) : 0
+}
+
 function AgentWorkingStatus({
   designMode,
   run
@@ -281,7 +294,8 @@ function AgentWorkingStatus({
   designMode: DesignMode
   run: AgentRunView
 }): React.JSX.Element {
-  const [step, setStep] = useState(0)
+  const [phase, setPhase] = useState(0)
+  const elapsed = useLiveElapsed(run.startedAt, true)
   const waitingLabels = [
     'Reading the brief',
     'Thinking through the request',
@@ -293,36 +307,53 @@ function AgentWorkingStatus({
     vector: 'Building the vector',
     motion: 'Composing the motion'
   }[designMode]
-  const label = run.designStarted ? writingLabel : waitingLabels[step]
+  const label = run.designStarted ? writingLabel : waitingLabels[phase]
 
   useEffect(() => {
-    setStep(0)
+    setPhase(0)
     if (
       run.designStarted ||
       window.matchMedia('(prefers-reduced-motion: reduce)').matches
     ) {
       return
     }
-    const timer = window.setInterval(() => {
-      setStep((value) => (value + 1) % waitingLabels.length)
-    }, 1_800)
-    return () => window.clearInterval(timer)
+    const thinking = window.setTimeout(() => setPhase(1), 1_400)
+    const nextStep = window.setTimeout(() => setPhase(2), 3_600)
+    return () => {
+      window.clearTimeout(thinking)
+      window.clearTimeout(nextStep)
+    }
   }, [run.designStarted, run.startedAt])
 
   return (
     <div
       aria-live="polite"
-      className="agent-working-status"
+      className="agent-working-stack"
       role="status"
     >
-      <span className="agent-working-bars" aria-hidden="true">
-        <i />
-        <i />
-        <i />
-      </span>
-      <span className="agent-working-label" key={label}>
-        {label}
-      </span>
+      <div className="agent-working-row is-done">
+        <span className="agent-working-mark" aria-hidden="true">
+          <Check size={11} />
+        </span>
+        <span>Brief received</span>
+        <span className="agent-working-elapsed">
+          {formatDuration(elapsed)}
+        </span>
+      </div>
+      <div className="agent-working-row is-current">
+        <span className="agent-working-bars" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+        </span>
+        <span className="agent-working-label" key={label}>
+          {label}
+        </span>
+      </div>
+      <div className="agent-working-row is-pending">
+        <span className="agent-working-pending" aria-hidden="true" />
+        <span>Canvas update</span>
+      </div>
     </div>
   )
 }
@@ -369,7 +400,7 @@ function ToolMetricsSummary({
           {metrics.fetchedAssets === 1 ? 'asset' : 'assets'} fetched
         </span>
       ) : null}
-      <span>{(metrics.durationMs / 1000).toFixed(1)}s tools</span>
+      <span>{(metrics.durationMs / 1000).toFixed(1)}s total</span>
       {metrics.parallelBatches > 0 ? (
         <span>{metrics.parallelBatches} parallel</span>
       ) : null}
@@ -413,6 +444,7 @@ function AgentWorkTimeline({
   )
   const panelId = useId()
   const [expanded, setExpanded] = useState(active)
+  const elapsed = useLiveElapsed(run?.startedAt ?? 0, active && Boolean(run))
 
   useEffect(() => {
     setExpanded(active)
@@ -436,7 +468,8 @@ function AgentWorkTimeline({
               ? `${activeIndex + 1} of ${visibleActivities.length} steps`
               : `${visibleActivities.length} ${
                   visibleActivities.length === 1 ? 'step' : 'steps'
-                }`}
+                }`}{' '}
+            / {formatDuration(elapsed)}
           </span>
         </div>
         <div className="activity-timeline" aria-label="Agent activity">
