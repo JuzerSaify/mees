@@ -1,0 +1,1132 @@
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  session,
+  shell,
+  type WebContents
+} from 'electron'
+import { randomUUID } from 'node:crypto'
+import { writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import {
+  IPC_CHANNELS,
+  PROVIDER_IDS,
+  type AgentActivity,
+  type AgentReferenceImage,
+  type AgentStreamEvent,
+  type AgentToolMetrics,
+  type AppProject,
+  type DesignMode,
+  type DesignSelection,
+  type FetchedVisualAsset,
+  type PreferencesUpdate,
+  type ProviderId,
+  type RecentDesignSummary,
+  type ResearchSource,
+  type StartAgentRequest,
+  type TokenUsage
+} from '../shared/types'
+import {
+  listModels,
+  runAgentTurn,
+  type AgentConversationMessage
+} from './providers'
+import { KernStore } from './store'
+import { compactAgentHistory } from './context'
+import {
+  getEffortSupport,
+  isEffortLevel,
+  normalizeEffort
+} from '../shared/effort'
+import {
+  AGENT_TOOLS,
+  describeAgentTool,
+  executeAgentTool
+} from './agent-tools'
+
+const currentDirectory = fileURLToPath(new URL('.', import.meta.url))
+const isDevelopment = Boolean(process.env.ELECTRON_RENDERER_URL)
+
+let mainWindow: BrowserWindow | null = null
+let store: KernStore
+app.setName('Kern')
+
+if (!app.isPackaged && process.env.KERN_USER_DATA_DIR) {
+  app.setPath('userData', process.env.KERN_USER_DATA_DIR)
+}
+
+const agentRequests = new Map<
+  string,
+  { controller: AbortController; sender: WebContents }
+>()
+const previewWindows = new Set<BrowserWindow>()
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+if (!hasSingleInstanceLock) {
+  app.quit()
+}
+
+function safeExternalUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : null
+  } catch {
+    return null
+  }
+}
+
+function openTrustedExternal(value: unknown): void {
+  const url = safeExternalUrl(value)
+  if (url) void shell.openExternal(url)
+}
+
+function exportFileBase(title: string, fallback: string): string {
+  return (
+    title
+      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .slice(0, 80) || fallback
+  )
+}
+
+async function recordMotionVideo(
+  html: string,
+  title: string
+): Promise<Buffer> {
+  const recorderWindow = new BrowserWindow({
+    width: 1280,
+    height: 720,
+    show: false,
+    skipTaskbar: true,
+    backgroundColor: '#000000',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      backgroundThrottling: false,
+      offscreen: true
+    }
+  })
+
+  try {
+    await recorderWindow.loadURL(
+      `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
+    )
+    await new Promise((resolve) => setTimeout(resolve, 800))
+    const result = (await recorderWindow.webContents.executeJavaScript(
+      `(async()=>{
+        const motion=window.KERN_MOTION;
+        const canvas=document.querySelector('canvas');
+        if(!motion||!canvas||typeof motion.renderAt!=='function'){
+          throw new Error('This motion document does not expose the required renderAt timeline.');
+        }
+        const clamp=(value,min,max)=>Math.max(min,Math.min(max,Number(value)||min));
+        const width=clamp(canvas.width||motion.width||1280,320,1920);
+        const height=clamp(canvas.height||motion.height||720,180,1080);
+        const fps=clamp(motion.fps||30,24,60);
+        const duration=clamp(motion.duration||8,3,15);
+        canvas.width=width;
+        canvas.height=height;
+        motion.pause?.();
+        const candidates=[
+          'video/webm;codecs=vp9',
+          'video/webm;codecs=vp8',
+          'video/webm'
+        ];
+        const mimeType=candidates.find((type)=>MediaRecorder.isTypeSupported(type))||'video/webm';
+        const stream=canvas.captureStream(fps);
+        const recorder=new MediaRecorder(stream,{
+          mimeType,
+          videoBitsPerSecond: Math.round(width*height*fps*0.12)
+        });
+        const chunks=[];
+        recorder.ondataavailable=(event)=>{if(event.data.size)chunks.push(event.data)};
+        recorder.start();
+        const startedAt=performance.now();
+        await new Promise((resolve)=>{
+          const frame=()=>{
+            const elapsed=Math.min(duration,(performance.now()-startedAt)/1000);
+            motion.renderAt(elapsed);
+            if(elapsed<duration)setTimeout(frame,Math.max(1,1000/fps));
+            else resolve();
+          };
+          frame();
+        });
+        motion.renderAt(duration);
+        await new Promise((resolve)=>setTimeout(resolve,180));
+        await new Promise((resolve)=>{recorder.onstop=resolve;recorder.stop();});
+        stream.getTracks().forEach((track)=>track.stop());
+        const blob=new Blob(chunks,{type:mimeType});
+        const bytes=new Uint8Array(await blob.arrayBuffer());
+        let binary='';
+        for(let offset=0;offset<bytes.length;offset+=0x8000){
+          binary+=String.fromCharCode(...bytes.subarray(offset,offset+0x8000));
+        }
+        return {base64:btoa(binary),mimeType,duration,width,height};
+      })()`,
+      true
+    )) as {
+      base64?: string
+      mimeType?: string
+      duration?: number
+      width?: number
+      height?: number
+    }
+    if (!result?.base64) {
+      throw new Error('The motion renderer returned an empty video.')
+    }
+    return Buffer.from(result.base64, 'base64')
+  } finally {
+    recorderWindow.destroy()
+  }
+}
+
+function sendAgentEvent(sender: WebContents, event: AgentStreamEvent): void {
+  if (!sender.isDestroyed()) sender.send(IPC_CHANNELS.agentEvent, event)
+}
+
+function newActivity(
+  kind: AgentActivity['kind'],
+  label: string,
+  detail?: string
+): AgentActivity {
+  return {
+    id: randomUUID(),
+    kind,
+    label,
+    detail,
+    status: 'running',
+    startedAt: new Date().toISOString()
+  }
+}
+
+function finishActivity(
+  activity: AgentActivity,
+  status: Exclude<AgentActivity['status'], 'running'>,
+  detail?: string,
+  result?: Pick<AgentActivity, 'sources'>
+): AgentActivity {
+  return {
+    ...activity,
+    ...result,
+    status,
+    detail: detail ?? activity.detail,
+    finishedAt: new Date().toISOString()
+  }
+}
+
+function combineUsage(...usages: Array<TokenUsage | undefined>): TokenUsage | undefined {
+  const inputTokens = usages.reduce(
+    (total, usage) => total + (usage?.inputTokens ?? 0),
+    0
+  )
+  const outputTokens = usages.reduce(
+    (total, usage) => total + (usage?.outputTokens ?? 0),
+    0
+  )
+  if (inputTokens === 0 && outputTokens === 0) return undefined
+  return {
+    inputTokens: inputTokens || undefined,
+    outputTokens: outputTokens || undefined
+  }
+}
+
+function mergeResearchSources(
+  current: ResearchSource[],
+  incoming: ResearchSource[],
+  limit = 12
+): ResearchSource[] {
+  const merged = new Map<string, ResearchSource>()
+  for (const source of [...current, ...incoming]) {
+    const key = source.url.toLocaleLowerCase('en')
+    const existing = merged.get(key)
+    merged.set(
+      key,
+      existing
+        ? {
+            ...existing,
+            ...source,
+            snippet: source.snippet || existing.snippet,
+            pageContent: source.pageContent ?? existing.pageContent,
+            retrievedAt: source.retrievedAt ?? existing.retrievedAt
+          }
+        : source
+    )
+  }
+  return [...merged.values()].slice(0, limit)
+}
+
+function mergeFetchedAssets(
+  current: FetchedVisualAsset[],
+  incoming: FetchedVisualAsset[],
+  limit = 8
+): FetchedVisualAsset[] {
+  const merged = new Map<string, FetchedVisualAsset>()
+  for (const asset of [...current, ...incoming]) {
+    merged.set(asset.token || asset.sourceUrl, asset)
+  }
+  return [...merged.values()].slice(0, limit)
+}
+
+function validateProvider(value: unknown): ProviderId {
+  if (typeof value !== 'string' || !PROVIDER_IDS.includes(value as ProviderId)) {
+    throw new Error('Choose a supported provider.')
+  }
+  return value as ProviderId
+}
+
+function validateApiKey(value: unknown): string {
+  if (typeof value !== 'string') throw new Error('Paste an API key.')
+  const key = value.trim()
+  if (key.length < 8 || key.length > 4096) throw new Error('That API key looks incomplete.')
+  return key
+}
+
+function validateDesignMode(value: unknown): DesignMode {
+  return value === 'logo' || value === 'vector' || value === 'motion'
+    ? value
+    : 'website'
+}
+
+function sanitizeDesignSelection(value: unknown): DesignSelection | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  const selector =
+    typeof record.selector === 'string' ? record.selector.trim() : ''
+  const tag = typeof record.tag === 'string' ? record.tag.trim() : ''
+  const html = typeof record.html === 'string' ? record.html.trim() : ''
+  if (
+    !selector ||
+    selector.length > 500 ||
+    !tag ||
+    tag.length > 40 ||
+    !html ||
+    html.length > 40_000
+  ) {
+    throw new Error('The selected element is no longer usable.')
+  }
+  const rect = record.rect && typeof record.rect === 'object'
+    ? (record.rect as Record<string, unknown>)
+    : null
+  const number = (input: unknown): number =>
+    typeof input === 'number' && Number.isFinite(input) ? input : 0
+  return {
+    selector,
+    tag,
+    label:
+      typeof record.label === 'string'
+        ? record.label.trim().slice(0, 180)
+        : tag,
+    text:
+      typeof record.text === 'string' ? record.text.trim().slice(0, 4_000) : '',
+    html,
+    styles:
+      typeof record.styles === 'string'
+        ? record.styles.trim().slice(0, 12_000)
+        : undefined,
+    rect: rect
+      ? {
+          x: number(rect.x),
+          y: number(rect.y),
+          width: number(rect.width),
+          height: number(rect.height)
+        }
+      : undefined
+  }
+}
+
+function sanitizeReferenceImages(value: unknown): AgentReferenceImage[] {
+  if (!Array.isArray(value)) return []
+  const images: AgentReferenceImage[] = []
+  for (const entry of value.slice(0, 4)) {
+    if (!entry || typeof entry !== 'object') continue
+    const record = entry as Record<string, unknown>
+    const dataUrl =
+      typeof record.dataUrl === 'string' ? record.dataUrl.trim() : ''
+    const match = /^data:(image\/(?:png|jpeg|webp));base64,([a-z0-9+/=\s]+)$/i.exec(
+      dataUrl
+    )
+    if (!match?.[1] || !match[2] || dataUrl.length > 4_500_000) continue
+    const width =
+      typeof record.width === 'number' && Number.isFinite(record.width)
+        ? Math.round(record.width)
+        : 0
+    const height =
+      typeof record.height === 'number' && Number.isFinite(record.height)
+        ? Math.round(record.height)
+        : 0
+    if (width < 24 || height < 24 || width > 4096 || height > 4096) continue
+    const mimeType = match[1].toLocaleLowerCase('en') as
+      | 'image/png'
+      | 'image/jpeg'
+      | 'image/webp'
+    images.push({
+      id:
+        typeof record.id === 'string' && record.id.trim()
+          ? record.id.trim().slice(0, 80)
+          : randomUUID(),
+      name:
+        typeof record.name === 'string' && record.name.trim()
+          ? record.name.trim().slice(0, 120)
+          : `Reference ${images.length + 1}`,
+      mimeType,
+      width,
+      height,
+      dataUrl
+    })
+  }
+  return images
+}
+
+function sanitizeRecentDesigns(value: unknown): RecentDesignSummary[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter(
+      (entry): entry is Record<string, unknown> =>
+        Boolean(entry) && typeof entry === 'object'
+    )
+    .flatMap((entry) => {
+      const fingerprint =
+        entry.fingerprint && typeof entry.fingerprint === 'object'
+          ? (entry.fingerprint as Record<string, unknown>)
+          : null
+      if (
+        typeof entry.title !== 'string' ||
+        !fingerprint ||
+        typeof fingerprint.hero !== 'string' ||
+        typeof fingerprint.media !== 'string' ||
+        typeof fingerprint.typography !== 'string' ||
+        typeof fingerprint.background !== 'string' ||
+        typeof fingerprint.density !== 'string'
+      ) {
+        return []
+      }
+      return [
+        {
+          title: entry.title.trim().slice(0, 120),
+          fingerprint: {
+            hero: fingerprint.hero.slice(0, 40),
+            media: fingerprint.media.slice(0, 40),
+            typography: fingerprint.typography.slice(0, 60),
+            background: fingerprint.background.slice(0, 40),
+            density: fingerprint.density.slice(0, 40),
+            sectionCount:
+              typeof fingerprint.sectionCount === 'number' &&
+              Number.isFinite(fingerprint.sectionCount)
+                ? Math.max(0, Math.min(40, fingerprint.sectionCount))
+                : 0
+          }
+        }
+      ]
+    })
+    .slice(0, 4)
+}
+
+function sanitizeAgentRequest(value: unknown): StartAgentRequest {
+  if (!value || typeof value !== 'object') throw new Error('Invalid generation request.')
+  const request = value as Record<string, unknown>
+  const provider = validateProvider(request.provider)
+  if (typeof request.model !== 'string' || !request.model.trim()) {
+    throw new Error('Choose a model first.')
+  }
+  const model = request.model.trim()
+  if (request.effort !== undefined) {
+    const effort = getEffortSupport(provider, model)
+    if (
+      !isEffortLevel(request.effort) ||
+      !effort.options.some((option) => option.value === request.effort)
+    ) {
+      throw new Error('That effort level is not supported by this model.')
+    }
+  }
+  if (!Array.isArray(request.history) || request.history.length === 0) {
+    throw new Error('Add a brief before starting.')
+  }
+
+  const history = request.history
+    .slice(-30)
+    .filter(
+      (entry): entry is { role: 'user' | 'assistant'; content: string } =>
+        Boolean(entry) &&
+        typeof entry === 'object' &&
+        ((entry as Record<string, unknown>).role === 'user' ||
+          (entry as Record<string, unknown>).role === 'assistant') &&
+        typeof (entry as Record<string, unknown>).content === 'string'
+    )
+    .map((entry) => {
+      const referenceImages = sanitizeReferenceImages(
+        (entry as Record<string, unknown>).referenceImages
+      )
+      return {
+        role: entry.role,
+        content: entry.content.slice(0, 80_000),
+        ...(referenceImages.length ? { referenceImages } : {})
+      }
+    })
+
+  if (history.length === 0) throw new Error('Add a brief before starting.')
+  let remainingReferenceImages = 4
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const message = history[index]
+    if (!message) continue
+    const images = (message.referenceImages ?? []).slice(
+      0,
+      Math.max(0, remainingReferenceImages)
+    )
+    remainingReferenceImages -= images.length
+    if (images.length) message.referenceImages = images
+    else delete message.referenceImages
+  }
+  const target = sanitizeDesignSelection(request.target)
+  const designMode = validateDesignMode(request.designMode)
+  const mode =
+    request.mode === 'polish'
+      ? 'polish'
+      : request.mode === 'targeted-edit' && target
+        ? 'targeted-edit'
+        : 'design'
+
+  return {
+    provider,
+    model,
+    effort:
+      normalizeEffort(provider, model, request.effort) ?? undefined,
+    history,
+    currentDesign:
+      typeof request.currentDesign === 'string'
+        ? request.currentDesign.slice(0, 240_000)
+        : '',
+    designMode,
+    mode,
+    reviewNotes:
+      typeof request.reviewNotes === 'string'
+        ? request.reviewNotes.slice(0, 8000)
+        : undefined,
+    target: mode === 'targeted-edit' ? target : undefined,
+    recentDesigns: sanitizeRecentDesigns(request.recentDesigns)
+  }
+}
+
+async function createMainWindow(): Promise<void> {
+  const iconPath = isDevelopment
+    ? join(process.cwd(), 'build/icon.png')
+    : join(app.getAppPath(), 'build/icon.png')
+
+  mainWindow = new BrowserWindow({
+    width: 1440,
+    height: 920,
+    minWidth: 1000,
+    minHeight: 700,
+    show: false,
+    backgroundColor: '#ECEEEA',
+    title: 'Kern',
+    icon: iconPath,
+    titleBarStyle: 'hidden',
+    titleBarOverlay:
+      process.platform === 'darwin'
+        ? undefined
+        : {
+            color: '#ECEEEA',
+            symbolColor: '#181A18',
+            height: 48
+          },
+    webPreferences: {
+      preload: join(currentDirectory, '../preload/index.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      spellcheck: true
+    }
+  })
+
+  Menu.setApplicationMenu(null)
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show()
+  })
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    openTrustedExternal(url)
+    return { action: 'deny' }
+  })
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const currentUrl = mainWindow?.webContents.getURL() ?? ''
+    if (url === currentUrl) return
+    event.preventDefault()
+    openTrustedExternal(url)
+  })
+
+  mainWindow.webContents.on('render-process-gone', () => {
+    for (const [id, request] of agentRequests) {
+      if (request.sender === mainWindow?.webContents) {
+        request.controller.abort()
+        agentRequests.delete(id)
+      }
+    }
+  })
+
+  mainWindow.on('closed', () => {
+    mainWindow = null
+    for (const [id, request] of agentRequests) {
+      if (request.sender.isDestroyed()) {
+        request.controller.abort()
+        agentRequests.delete(id)
+      }
+    }
+  })
+
+  if (isDevelopment && process.env.ELECTRON_RENDERER_URL) {
+    await mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
+  } else {
+    await mainWindow.loadFile(join(currentDirectory, '../renderer/index.html'))
+  }
+}
+
+function registerIpc(): void {
+  ipcMain.handle(IPC_CHANNELS.getState, async () => store.getSnapshot())
+
+  ipcMain.handle(
+    IPC_CHANNELS.connectProvider,
+    async (_event, rawProvider: unknown, rawKey: unknown) => {
+      const provider = validateProvider(rawProvider)
+      const apiKey = validateApiKey(rawKey)
+      const models = await listModels(provider, apiKey)
+      if (models.length === 0) {
+        throw new Error('No text models are available for this API key.')
+      }
+
+      const encryptedApiKey = await store.encryptApiKey(apiKey)
+      await store.saveEncryptedProvider(
+        provider,
+        encryptedApiKey,
+        `...${apiKey.slice(-4)}`,
+        models
+      )
+      return store.getSnapshot()
+    }
+  )
+
+  ipcMain.handle(IPC_CHANNELS.disconnectProvider, async (_event, rawProvider: unknown) => {
+    const provider = validateProvider(rawProvider)
+    await store.disconnectProvider(provider)
+    return store.getSnapshot()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.refreshModels, async (_event, rawProvider: unknown) => {
+    const provider = validateProvider(rawProvider)
+    const apiKey = await store.getApiKey(provider)
+    const models = await listModels(provider, apiKey)
+    if (models.length === 0) throw new Error('No text models are available for this API key.')
+    await store.updateProviderModels(provider, models)
+    return store.getSnapshot()
+  })
+
+  ipcMain.handle(
+    IPC_CHANNELS.selectModel,
+    async (_event, rawProvider: unknown, rawModel: unknown) => {
+      const provider = validateProvider(rawProvider)
+      if (typeof rawModel !== 'string' || !rawModel.trim()) {
+        throw new Error('Choose a model.')
+      }
+      await store.selectModel(provider, rawModel)
+      return store.getSnapshot()
+    }
+  )
+
+  ipcMain.handle(IPC_CHANNELS.savePreferences, async (_event, rawUpdate: unknown) => {
+    if (!rawUpdate || typeof rawUpdate !== 'object') throw new Error('Invalid preferences.')
+    const update = rawUpdate as PreferencesUpdate
+    await store.savePreferences(update)
+    return store.getSnapshot()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.saveProject, async (_event, rawProject: unknown) => {
+    if (!rawProject || typeof rawProject !== 'object') throw new Error('Invalid project.')
+    return store.saveProject(rawProject as AppProject)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.deleteProject, async (_event, rawProjectId: unknown) => {
+    if (typeof rawProjectId !== 'string') throw new Error('Invalid project.')
+    await store.deleteProject(rawProjectId)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.startAgent, async (event, rawRequest: unknown) => {
+    const inputRequest = sanitizeAgentRequest(rawRequest)
+    const snapshot = await store.getSnapshot()
+    const providerStatus = snapshot.settings.providers.find(
+      (provider) => provider.provider === inputRequest.provider
+    )
+    if (!providerStatus?.connected) throw new Error('Reconnect this provider in Settings.')
+    const modelInfo = providerStatus.models.find(
+      (model) => model.id === inputRequest.model
+    )
+    if (!modelInfo) {
+      throw new Error('That model is no longer available. Refresh the provider first.')
+    }
+    if (
+      modelInfo.supportsImages === false &&
+      inputRequest.history.some((message) => message.referenceImages?.length)
+    ) {
+      throw new Error(
+        'This model accepts text only. Choose an image-capable model before using reference images.'
+      )
+    }
+
+    const compacted = compactAgentHistory(inputRequest.history, {
+      contextWindow: modelInfo.contextWindow,
+      currentDesignChars: inputRequest.currentDesign.length
+    })
+    const request: StartAgentRequest = {
+      ...inputRequest,
+      history: compacted.history
+    }
+    const apiKey = await store.getApiKey(request.provider)
+    const requestId = randomUUID()
+    const controller = new AbortController()
+    agentRequests.set(requestId, { controller, sender: event.sender })
+
+    void (async () => {
+      const conversation: AgentConversationMessage[] = request.history.map(
+        (message) => ({
+          role: message.role,
+          content: message.content,
+          ...(message.referenceImages?.length
+            ? { referenceImages: message.referenceImages }
+            : {})
+        })
+      )
+      const toolState = {
+        sources: [] as ResearchSource[],
+        assets: [] as FetchedVisualAsset[]
+      }
+      const harnessStartedAt = Date.now()
+      const harnessStats = {
+        rounds: 0,
+        parallelBatches: 0,
+        queries: 0,
+        toolCalls: 0,
+        pagesRead: 0
+      }
+      let usage: TokenUsage | undefined
+      let writeActivity: AgentActivity | null = null
+      let writeFinished = false
+      let completed = false
+
+      const emitActivity = (activity: AgentActivity): void => {
+        if (controller.signal.aborted || event.sender.isDestroyed()) return
+        sendAgentEvent(event.sender, {
+          requestId,
+          type: 'activity',
+          activity
+        })
+      }
+
+      const startWriting = (): void => {
+        if (writeActivity || writeFinished) return
+        writeActivity = newActivity(
+          'write',
+          request.mode === 'targeted-edit'
+            ? 'Writing the selected edit'
+            : 'Writing the artifact',
+          'Streaming the completed agent response into the canvas'
+        )
+        emitActivity(writeActivity)
+      }
+
+      const finishWriting = (
+        status: 'complete' | 'error' | 'cancelled',
+        detail: string
+      ): void => {
+        if (!writeActivity || writeFinished) return
+        writeFinished = true
+        emitActivity(finishActivity(writeActivity, status, detail))
+      }
+
+      try {
+        const maxToolSteps = 6
+        for (let step = 0; step <= maxToolSteps; step += 1) {
+          if (controller.signal.aborted) {
+            throw new DOMException('Request cancelled', 'AbortError')
+          }
+          const turn = await runAgentTurn({
+            provider: request.provider,
+            model: request.model,
+            effort: request.effort,
+            apiKey,
+            currentDesign: request.currentDesign,
+            designMode: request.designMode,
+            mode: request.mode,
+            reviewNotes: request.reviewNotes,
+            target: request.target,
+            recentDesigns: request.recentDesigns,
+            purpose:
+              request.mode === 'targeted-edit' ? 'targeted-edit' : 'design',
+            messages: conversation,
+            tools: step < maxToolSteps ? AGENT_TOOLS : [],
+            signal: controller.signal,
+            onDelta: (delta) => {
+              if (controller.signal.aborted || event.sender.isDestroyed()) return
+              startWriting()
+              sendAgentEvent(event.sender, {
+                requestId,
+                type: 'delta',
+                delta
+              })
+            }
+          })
+          usage = combineUsage(usage, turn.usage)
+
+          if (turn.toolCalls.length === 0) {
+            if (!turn.text.trim()) {
+              throw new Error(
+                'The agent finished without returning a response or using a tool.'
+              )
+            }
+            completed = true
+            break
+          }
+
+          conversation.push({
+            role: 'assistant',
+            content: turn.text,
+            toolCalls: turn.toolCalls
+          })
+          harnessStats.rounds += 1
+          harnessStats.toolCalls += turn.toolCalls.length
+          if (turn.toolCalls.length > 1) {
+            harnessStats.parallelBatches += 1
+          }
+          for (const call of turn.toolCalls) {
+            if (call.name === 'search_web') {
+              harnessStats.queries += Array.isArray(call.arguments.queries)
+                ? call.arguments.queries.filter(
+                    (value): value is string => typeof value === 'string'
+                  ).length
+                : 0
+            } else if (call.name === 'fetch_visual_assets') {
+              harnessStats.queries += 1
+            }
+          }
+
+          const results = await Promise.all(
+            turn.toolCalls.map(async (call) => {
+              const description = describeAgentTool(call)
+              const activity = newActivity(
+                description.kind,
+                description.label,
+                description.detail
+              )
+              emitActivity(activity)
+              try {
+                const execution = await executeAgentTool(
+                  call,
+                  toolState,
+                  controller.signal
+                )
+                return { call, activity, execution }
+              } catch (error) {
+                return { call, activity, error }
+              }
+            })
+          )
+
+          for (const result of results) {
+            if ('execution' in result && result.execution) {
+              const execution = result.execution
+              if (execution.sources?.length) {
+                toolState.sources = mergeResearchSources(
+                  toolState.sources,
+                  execution.sources
+                )
+                harnessStats.pagesRead += execution.sources.filter(
+                  (source) => Boolean(source.pageContent)
+                ).length
+              }
+              if (execution.assets?.length) {
+                toolState.assets = mergeFetchedAssets(
+                  toolState.assets,
+                  execution.assets
+                )
+                if (!event.sender.isDestroyed()) {
+                  sendAgentEvent(event.sender, {
+                    requestId,
+                    type: 'assets',
+                    assets: toolState.assets
+                  })
+                }
+              }
+              const sourceCount = execution.sources?.length ?? 0
+              const assetCount = execution.assets?.length ?? 0
+              const detail =
+                result.call.name === 'search_web'
+                  ? sourceCount
+                    ? `${sourceCount} ${
+                        sourceCount === 1 ? 'source' : 'sources'
+                      } returned from the live search`
+                    : 'No usable search results were returned'
+                  : result.call.name === 'fetch_visual_assets'
+                    ? assetCount
+                      ? `${assetCount} ${
+                          assetCount === 1 ? 'visual' : 'visuals'
+                        } validated for the artifact`
+                      : 'No accurate public visual passed validation'
+                    : sourceCount
+                      ? `${sourceCount} ${
+                          sourceCount === 1 ? 'page' : 'pages'
+                        } read beyond the search excerpt`
+                      : 'No readable page text was returned'
+              emitActivity(
+                finishActivity(result.activity, 'complete', detail, {
+                  sources: execution.sources
+                })
+              )
+              conversation.push({
+                role: 'tool',
+                toolCallId: result.call.id,
+                toolName: result.call.name,
+                content: execution.content
+              })
+            } else {
+              const message =
+                result.error instanceof Error
+                  ? result.error.message.slice(0, 500)
+                  : 'The tool could not complete.'
+              if (!controller.signal.aborted) {
+                emitActivity(
+                  finishActivity(result.activity, 'error', message)
+                )
+              }
+              conversation.push({
+                role: 'tool',
+                toolCallId: result.call.id,
+                toolName: result.call.name,
+                content: JSON.stringify({
+                  tool: result.call.name,
+                  ok: false,
+                  error: message
+                })
+              })
+            }
+          }
+        }
+
+        if (!completed) {
+          throw new Error('The agent reached its tool limit without a final response.')
+        }
+        finishWriting('complete', 'Response complete')
+        if (controller.signal.aborted) {
+          sendAgentEvent(event.sender, { requestId, type: 'cancelled' })
+        } else {
+          const metrics: AgentToolMetrics = {
+            rounds: harnessStats.rounds,
+            parallelBatches: harnessStats.parallelBatches,
+            queries: harnessStats.queries,
+            toolCalls: harnessStats.toolCalls,
+            pagesRead: harnessStats.pagesRead,
+            sources: toolState.sources.length,
+            fetchedAssets: toolState.assets.length,
+            evidenceItems:
+              toolState.sources.length + toolState.assets.length,
+            durationMs: Date.now() - harnessStartedAt
+          }
+          sendAgentEvent(event.sender, {
+            requestId,
+            type: 'done',
+            usage,
+            metrics
+          })
+        }
+      } catch (error) {
+        if (controller.signal.aborted) {
+          finishWriting('cancelled', 'Stopped')
+          sendAgentEvent(event.sender, { requestId, type: 'cancelled' })
+          return
+        }
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'The provider request failed unexpectedly.'
+        finishWriting('error', message.slice(0, 500))
+        sendAgentEvent(event.sender, {
+          requestId,
+          type: 'error',
+          error: message.slice(0, 1000)
+        })
+      } finally {
+        agentRequests.delete(requestId)
+      }
+    })()
+
+    return { requestId }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.cancelAgent, async (_event, rawRequestId: unknown) => {
+    if (typeof rawRequestId !== 'string') return
+    agentRequests.get(rawRequestId)?.controller.abort()
+  })
+
+  ipcMain.handle(
+    IPC_CHANNELS.exportHtml,
+    async (
+      _event,
+      rawHtml: unknown,
+      rawTitle: unknown,
+      rawDesignMode: unknown
+    ) => {
+      if (typeof rawHtml !== 'string' || !rawHtml.trim()) {
+        throw new Error('There is no design to export yet.')
+      }
+      const title = typeof rawTitle === 'string' && rawTitle.trim() ? rawTitle.trim() : 'Kern design'
+      const designMode = validateDesignMode(rawDesignMode)
+      const isVector = designMode === 'logo' || designMode === 'vector'
+      const filename = `${exportFileBase(title, 'kern-design')}.${
+        isVector ? 'svg' : 'html'
+      }`
+
+      const options: Electron.SaveDialogOptions = {
+        title: isVector ? 'Export SVG' : 'Export design',
+        defaultPath: join(app.getPath('documents'), filename),
+        filters: [
+          isVector
+            ? { name: 'SVG artwork', extensions: ['svg'] }
+            : { name: 'HTML document', extensions: ['html'] }
+        ]
+      }
+      const result = mainWindow
+        ? await dialog.showSaveDialog(mainWindow, options)
+        : await dialog.showSaveDialog(options)
+      if (result.canceled || !result.filePath) return { saved: false }
+      await writeFile(result.filePath, rawHtml, 'utf8')
+      return { saved: true, filePath: result.filePath }
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.exportMotion,
+    async (_event, rawHtml: unknown, rawTitle: unknown) => {
+      if (typeof rawHtml !== 'string' || !rawHtml.trim()) {
+        throw new Error('There is no motion design to export yet.')
+      }
+      const title =
+        typeof rawTitle === 'string' && rawTitle.trim()
+          ? rawTitle.trim()
+          : 'Kern motion'
+      const filename = `${exportFileBase(title, 'kern-motion')}.webm`
+      const options: Electron.SaveDialogOptions = {
+        title: 'Export silent motion video',
+        defaultPath: join(app.getPath('documents'), filename),
+        filters: [{ name: 'WebM video', extensions: ['webm'] }]
+      }
+      const result = mainWindow
+        ? await dialog.showSaveDialog(mainWindow, options)
+        : await dialog.showSaveDialog(options)
+      if (result.canceled || !result.filePath) return { saved: false }
+      const buffer = await recordMotionVideo(rawHtml, title)
+      await writeFile(result.filePath, buffer)
+      return { saved: true, filePath: result.filePath }
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.openPreview,
+    async (_event, rawHtml: unknown, rawTitle: unknown) => {
+      if (typeof rawHtml !== 'string' || !rawHtml.trim()) {
+        throw new Error('There is no design to preview yet.')
+      }
+      const title = typeof rawTitle === 'string' && rawTitle.trim() ? rawTitle.trim() : 'Kern preview'
+      const previewWindow = new BrowserWindow({
+        width: 1280,
+        height: 860,
+        minWidth: 390,
+        minHeight: 520,
+        title,
+        backgroundColor: '#FFFFFF',
+        autoHideMenuBar: true,
+        webPreferences: {
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true
+        }
+      })
+      previewWindows.add(previewWindow)
+      previewWindow.on('closed', () => previewWindows.delete(previewWindow))
+      previewWindow.webContents.setWindowOpenHandler(({ url }) => {
+        openTrustedExternal(url)
+        return { action: 'deny' }
+      })
+      previewWindow.webContents.on('will-navigate', (event, url) => {
+        if (url.startsWith('data:text/html')) return
+        event.preventDefault()
+        openTrustedExternal(url)
+      })
+      await previewWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(rawHtml)}`)
+    }
+  )
+
+  ipcMain.handle(IPC_CHANNELS.openDataFolder, async () => {
+    const error = await shell.openPath(store.dataDirectory)
+    if (error) throw new Error(`Could not open the data folder: ${error}`)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.openExternal, async (_event, rawUrl: unknown) => {
+    const url = safeExternalUrl(rawUrl)
+    if (!url) throw new Error('Only http and https links can be opened.')
+    await shell.openExternal(url)
+  })
+}
+
+async function boot(): Promise<void> {
+  app.setAppUserModelId('studio.kern.desktop')
+  store = new KernStore()
+  await store.init()
+  registerIpc()
+
+  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false)
+  })
+
+  await createMainWindow()
+}
+
+if (hasSingleInstanceLock) {
+  app.on('second-instance', () => {
+    if (!mainWindow) return
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+  })
+
+  app.whenReady().then(boot).catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error)
+    dialog.showErrorBox('Kern could not start', message)
+    app.quit()
+  })
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      void createMainWindow()
+    }
+  })
+
+  app.on('window-all-closed', () => {
+    for (const [id, request] of agentRequests) {
+      request.controller.abort()
+      agentRequests.delete(id)
+    }
+    for (const preview of previewWindows) preview.close()
+    if (process.platform !== 'darwin') app.quit()
+  })
+
+  app.on('before-quit', () => {
+    for (const [id, request] of agentRequests) {
+      request.controller.abort()
+      agentRequests.delete(id)
+    }
+  })
+}
