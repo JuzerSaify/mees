@@ -1,4 +1,4 @@
-export const MOTION_PREVIEW_CHANNEL = 'kern:motion-preview'
+export const MOTION_PREVIEW_CHANNEL = 'mees:motion-preview'
 
 export interface MotionPreviewMetadata {
   width: number
@@ -22,9 +22,9 @@ export type MotionPreviewMessage =
     }
 
 function motionPreviewRuntime(): string {
-  return `<script data-kern-motion-preview-runtime>(function(){
-if(window.__kernMotionPreview)return;
-window.__kernMotionPreview=true;
+  return `<script data-mees-motion-preview-runtime>(function(){
+if(window.__meesMotionPreview)return;
+window.__meesMotionPreview=true;
 var channel=${JSON.stringify(MOTION_PREVIEW_CHANNEL)};
 var metadata={width:1280,height:720,duration:8,fps:30};
 var currentTime=0;
@@ -100,7 +100,7 @@ function seek(value){
 }
 function init(){
   if(motion)return;
-  motion=window.KERN_MOTION;
+  motion=window.MEES_MOTION;
   var canvas=document.querySelector('canvas');
   if(!motion||!canvas||typeof motion.renderAt!=='function'){
     attempts+=1;
@@ -138,7 +138,7 @@ setTimeout(init,0);
 }
 
 export function injectMotionPreviewRuntime(html: string): string {
-  if (!html.trim() || html.includes('data-kern-motion-preview-runtime')) {
+  if (!html.trim() || html.includes('data-mees-motion-preview-runtime')) {
     return html
   }
   const runtime = motionPreviewRuntime()

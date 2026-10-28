@@ -268,7 +268,7 @@ function SourceFavicon({
     <button
       aria-label={`Open ${source.title} from ${source.publisher}`}
       className="source-favicon"
-      onClick={() => void window.kern?.openExternal(source.url)}
+      onClick={() => void window.mees?.openExternal(source.url)}
       title={`${source.title} - ${source.publisher}`}
       type="button"
     >
@@ -686,7 +686,7 @@ function MessageBody({
     <div className="assistant-body">
       <div className="message-author">
         {message.provider ? <ProviderMark provider={message.provider} size={15} /> : null}
-        <span>Kern</span>
+        <span>Mees</span>
         {message.model ? <span className="message-model">{message.model}</span> : null}
       </div>
       {message.activities?.length ? (
@@ -709,7 +709,7 @@ function MessageBody({
                   href={href}
                   onClick={(event) => {
                     event.preventDefault()
-                    if (href) void window.kern?.openExternal(href)
+                    if (href) void window.mees?.openExternal(href)
                   }}
                 >
                   {children}
@@ -776,7 +776,8 @@ export function AgentPanel({
   )
   const [draggingReferences, setDraggingReferences] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const endRef = useRef<HTMLDivElement>(null)
+  const messagesRef = useRef<HTMLDivElement>(null)
+  const scrollFrameRef = useRef<number | null>(null)
 
   const messages = project?.messages ?? []
   const projectMatchesMode = project?.designMode === designMode
@@ -842,8 +843,22 @@ export function AgentPanel({
 
   useEffect(() => {
     if (!pinned) return
-    endRef.current?.scrollIntoView({ block: 'end' })
+    if (scrollFrameRef.current !== null) return
+    scrollFrameRef.current = window.requestAnimationFrame(() => {
+      scrollFrameRef.current = null
+      const element = messagesRef.current
+      if (element) element.scrollTop = element.scrollHeight
+    })
   }, [messages.length, messages, pinned, run?.bytes])
+
+  useEffect(
+    () => () => {
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current)
+      }
+    },
+    []
+  )
 
   async function sendValue(text: string): Promise<void> {
     const message =
@@ -953,6 +968,7 @@ export function AgentPanel({
           const element = event.currentTarget
           setPinned(element.scrollHeight - element.scrollTop - element.clientHeight < 56)
         }}
+        ref={messagesRef}
       >
         {visibleMessages.length === 0 ? (
           <div className="agent-empty">
@@ -982,7 +998,6 @@ export function AgentPanel({
             ) : null}
           </article>
         ))}
-        <div ref={endRef} />
       </div>
 
       <div className="agent-footer">

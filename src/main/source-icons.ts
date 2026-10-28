@@ -52,7 +52,7 @@ async function fetchIcon(url: string): Promise<{
       signal: AbortSignal.timeout(1_800),
       headers: {
         Accept: 'image/avif,image/webp,image/png,image/svg+xml,image/*;q=0.8',
-        'User-Agent': 'Kern/0.1'
+        'User-Agent': 'Mees/0.1'
       }
     })
     if (!response.ok) return null

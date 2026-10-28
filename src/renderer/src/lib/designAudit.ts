@@ -8,8 +8,8 @@ import type {
 } from '../../../shared/types'
 import { fingerprintArtifactDesign } from './designMemory'
 
-const AUDIT_CHANNEL = 'kern:design-audit'
-const MOTION_AUDIT_CHANNEL = 'kern:motion-audit'
+const AUDIT_CHANNEL = 'mees:design-audit'
+const MOTION_AUDIT_CHANNEL = 'mees:motion-audit'
 
 const auditViewports: Array<{
   id: DesignViewport
@@ -58,12 +58,12 @@ const send=(payload)=>{
   parent.postMessage({channel:${JSON.stringify(MOTION_AUDIT_CHANNEL)},token,result:payload},'*');
 };
 const waitForTimeline=()=>{
-  const motion=window.KERN_MOTION;
+  const motion=window.MEES_MOTION;
   const canvas=document.querySelector('canvas');
   if(!motion||!canvas||typeof motion.renderAt!=='function'){
     attempts+=1;
     if(attempts<70)setTimeout(waitForTimeline,50);
-    else send({error:'The timeline did not expose KERN_MOTION.renderAt within the review window.'});
+    else send({error:'The timeline did not expose MEES_MOTION.renderAt within the review window.'});
     return;
   }
   try{
@@ -137,7 +137,7 @@ function runMotionRuntimeAudit(html: string): Promise<MotionRuntimeResult> {
     'position:fixed;left:-20000px;top:0;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;'
   iframe.setAttribute('sandbox', 'allow-scripts')
   iframe.setAttribute('tabindex', '-1')
-  iframe.setAttribute('title', 'Kern motion review')
+  iframe.setAttribute('title', 'Mees motion review')
   iframe.style.cssText = 'width:1280px;height:720px;border:0;'
   host.appendChild(iframe)
   document.body.appendChild(host)
@@ -527,7 +527,7 @@ function runViewportAudit(
     'position:fixed;left:-20000px;top:0;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;'
   iframe.setAttribute('sandbox', 'allow-scripts')
   iframe.setAttribute('tabindex', '-1')
-  iframe.setAttribute('title', `Kern ${viewport} review`)
+  iframe.setAttribute('title', `Mees ${viewport} review`)
   iframe.style.cssText = `width:${width}px;height:${height}px;border:0;`
   host.appendChild(iframe)
   document.body.appendChild(host)
@@ -805,7 +805,7 @@ async function auditMotionDesign(
     issues.push(artifactIssue('desktop', rule, severity, title, detail))
   }
   const canvasCount = (html.match(/<canvas\b/gi) ?? []).length
-  const runtime = canvasCount === 1 && /window\.KERN_MOTION\s*=/.test(html)
+  const runtime = canvasCount === 1 && /window\.MEES_MOTION\s*=/.test(html)
     ? await runMotionRuntimeAudit(html)
     : null
   if (canvasCount !== 1) {
@@ -818,12 +818,12 @@ async function auditMotionDesign(
         : `Motion mode requires exactly one canvas; found ${canvasCount}.`
     )
   }
-  if (!/window\.KERN_MOTION\s*=/.test(html)) {
+  if (!/window\.MEES_MOTION\s*=/.test(html)) {
     add(
       'motion-api',
       'error',
       'Motion API missing',
-      'Expose window.KERN_MOTION for deterministic playback and export.'
+      'Expose window.MEES_MOTION for deterministic playback and export.'
     )
   }
   if (!/\brenderAt\s*[:(]/.test(html) && !runtime?.readable) {
@@ -886,7 +886,7 @@ async function auditMotionDesign(
         `motion-${method}`,
         'warning',
         `Timeline ${method} control missing`,
-        `Expose ${method} in window.KERN_MOTION so the preview transport and exported frames stay synchronized.`
+        `Expose ${method} in window.MEES_MOTION so the preview transport and exported frames stay synchronized.`
       )
     }
   }
@@ -923,7 +923,7 @@ async function auditMotionDesign(
         'The opening, middle and closing frames are identical. Move one idea meaningfully through time or remove the motion treatment.'
       )
     }
-  } else if (runtime?.error && canvasCount === 1 && /window\.KERN_MOTION\s*=/.test(html)) {
+  } else if (runtime?.error && canvasCount === 1 && /window\.MEES_MOTION\s*=/.test(html)) {
     add(
       'motion-runtime-review',
       'warning',

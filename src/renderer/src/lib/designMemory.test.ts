@@ -130,7 +130,7 @@ describe('design memory', () => {
   it('derives a structural fingerprint from motion code', () => {
     const fingerprint = fingerprintArtifactDesign(
       `<canvas></canvas><script>
-        window.KERN_MOTION = {
+        window.MEES_MOTION = {
           width: 1280,
           height: 720,
           duration: 6,

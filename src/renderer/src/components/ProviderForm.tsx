@@ -54,7 +54,7 @@ export function ProviderForm({
     setBusy('connect')
     setError('')
     try {
-      const snapshot = await window.kern?.connectProvider(provider, apiKey)
+      const snapshot = await window.mees?.connectProvider(provider, apiKey)
       if (snapshot) onSnapshot(snapshot)
       setApiKey('')
       setEditingKey(false)
@@ -70,7 +70,7 @@ export function ProviderForm({
     setBusy('refresh')
     setError('')
     try {
-      const snapshot = await window.kern?.refreshModels(provider)
+      const snapshot = await window.mees?.refreshModels(provider)
       if (snapshot) onSnapshot(snapshot)
     } catch (caught) {
       setError(errorMessage(caught))
@@ -83,7 +83,7 @@ export function ProviderForm({
     setBusy('model')
     setError('')
     try {
-      const snapshot = await window.kern?.selectModel(provider, model)
+      const snapshot = await window.mees?.selectModel(provider, model)
       if (snapshot) onSnapshot(snapshot)
     } catch (caught) {
       setError(errorMessage(caught))
@@ -96,7 +96,7 @@ export function ProviderForm({
     setBusy('disconnect')
     setError('')
     try {
-      const snapshot = await window.kern?.disconnectProvider(provider)
+      const snapshot = await window.mees?.disconnectProvider(provider)
       if (snapshot) onSnapshot(snapshot)
       setEditingKey(false)
       setOpen(false)
@@ -236,7 +236,7 @@ export function ProviderForm({
               <div className="provider-form-footer">
                 <button
                   className="inline-link"
-                  onClick={() => void window.kern?.openExternal(definition.keyUrl)}
+                  onClick={() => void window.mees?.openExternal(definition.keyUrl)}
                   type="button"
                 >
                   Get {definition.id === 'openai' ? 'an' : 'a'} {definition.name} key
@@ -278,7 +278,7 @@ export function ProviderForm({
               </div>
               {!secureStorageAvailable ? (
                 <p className="field-error">
-                  Secure key storage is unavailable on this machine. Kern will not save a key
+                  Secure key storage is unavailable on this machine. Mees will not save a key
                   in plain text.
                 </p>
               ) : null}

@@ -8,13 +8,13 @@ import {
   type DesignMemoryEntry,
   type DesignMode,
   type ExportResult,
-  type KernApi,
+  type MeesApi,
   type PreferencesUpdate,
   type ProviderId,
   type StartAgentRequest
 } from '../shared/types'
 
-const api: KernApi = {
+const api: MeesApi = {
   getState: () => ipcRenderer.invoke(IPC_CHANNELS.getState) as Promise<AppSnapshot>,
   connectProvider: (provider: ProviderId, apiKey: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.connectProvider, provider, apiKey) as Promise<AppSnapshot>,
@@ -74,4 +74,4 @@ const api: KernApi = {
     ipcRenderer.invoke(IPC_CHANNELS.openExternal, url) as Promise<void>
 }
 
-contextBridge.exposeInMainWorld('kern', api)
+contextBridge.exposeInMainWorld('mees', api)

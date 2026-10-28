@@ -1,33 +1,57 @@
 interface BrandMarkProps {
   size?: number
-  title?: string
 }
 
-export function BrandMark({ size = 28, title = 'Kern' }: BrandMarkProps): React.JSX.Element {
+export function BrandMark({ size = 28 }: BrandMarkProps): React.JSX.Element {
   return (
     <svg
-      aria-label={title}
+      aria-hidden="true"
       className="brand-mark"
       height={size}
-      role="img"
-      viewBox="0 0 32 32"
+      viewBox="0 0 512 512"
       width={size}
     >
-      <rect fill="currentColor" height="32" rx="7" width="32" />
+      <defs>
+        <linearGradient
+          id="mees-mark-peach"
+          x1="0"
+          x2="0"
+          y1="0"
+          y2="1"
+        >
+          <stop offset="0" stopColor="#FFA976" />
+          <stop offset="1" stopColor="#FF9B5A" />
+        </linearGradient>
+      </defs>
       <path
-        d="M8.2 6.5h4.3v7.6l6.6-7.6h5l-7.5 8.6L25 25.5h-5.2l-7.3-8.7v8.7H8.2V6.5Z"
-        fill="#FCFCFA"
+        d="M77 52H226C239 52 249 62 249 76V232C249 250 257 264 274 264H436C450 264 460 274 460 288V435C460 449 450 459 436 459H76C62 459 52 449 52 435V76C52 62 62 52 77 52Z"
+        fill="#261A13"
       />
-      <rect fill="#2A8C80" height="19" rx="1.5" width="1.8" x="24.1" y="6.5" />
+      <rect
+        fill="url(#mees-mark-peach)"
+        height="120"
+        rx="30"
+        width="120"
+        x="296"
+        y="97"
+      />
     </svg>
   )
 }
 
-export function Wordmark(): React.JSX.Element {
+export function Wordmark({
+  iconOnly = false
+}: {
+  iconOnly?: boolean
+}): React.JSX.Element {
   return (
-    <span className="wordmark">
-      <BrandMark size={22} />
-      <span>kern</span>
+    <span
+      aria-label={iconOnly ? 'Mees' : undefined}
+      className={`wordmark${iconOnly ? ' is-icon-only' : ''}`}
+      role={iconOnly ? 'img' : undefined}
+    >
+      <BrandMark size={iconOnly ? 24 : 22} />
+      {iconOnly ? null : <span>Mees</span>}
     </span>
   )
 }

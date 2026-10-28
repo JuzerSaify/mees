@@ -146,7 +146,7 @@ describe('agent tools', () => {
   })
 
   it('measures a real stored image through the optional media tools', async () => {
-    const token = `kern-asset://asset/${'a'.repeat(64)}.png`
+    const token = `mees-asset://asset/${'a'.repeat(64)}.png`
     const bytes = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
       'base64'
@@ -244,7 +244,7 @@ describe('agent tools', () => {
   })
 
   it('runs artifact inspection and every image transformation tool', async () => {
-    const sourceToken = `kern-asset://asset/${'b'.repeat(64)}.png`
+    const sourceToken = `mees-asset://asset/${'b'.repeat(64)}.png`
     const bytes = await sharp({
       create: {
         width: 96,
@@ -283,7 +283,7 @@ describe('agent tools', () => {
         derivedCount += 1
         return {
           id: `derived-${derivedCount}`,
-          token: `kern-asset://asset/${String(derivedCount).padStart(64, '0')}.webp`,
+          token: `mees-asset://asset/${String(derivedCount).padStart(64, '0')}.webp`,
           kind: 'image' as const,
           title: String(metadata.title),
           pageUrl: String(metadata.pageUrl ?? ''),
@@ -292,7 +292,7 @@ describe('agent tools', () => {
           byteLength: value.byteLength,
           width: Number(metadata.width ?? 0),
           height: Number(metadata.height ?? 0),
-          dataUrl: `kern-asset://asset/${String(derivedCount).padStart(64, '0')}.webp`
+          dataUrl: `mees-asset://asset/${String(derivedCount).padStart(64, '0')}.webp`
         }
       },
       inspectArtifact: async () => ({
@@ -350,7 +350,7 @@ describe('agent tools', () => {
         new AbortController().signal
       )
       expect(result.assets).toHaveLength(1)
-      expect(result.content).toContain('kern-asset://asset/')
+      expect(result.content).toContain('mees-asset://asset/')
     }
     expect(derivedCount).toBe(3)
   })

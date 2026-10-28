@@ -35,7 +35,7 @@ export function SettingsDialog({
     setBusy(true)
     setError('')
     try {
-      const next = await window.kern?.savePreferences({
+      const next = await window.mees?.savePreferences({
         reviewAfterBuild: !snapshot.settings.reviewAfterBuild
       })
       if (next) onSnapshot(next)
@@ -165,7 +165,7 @@ export function SettingsDialog({
                 <button
                   className="secondary-button compact"
                   onClick={() =>
-                    void window.kern?.openDataFolder().catch((caught: unknown) => {
+                    void window.mees?.openDataFolder().catch((caught: unknown) => {
                       setError(errorMessage(caught))
                     })
                   }

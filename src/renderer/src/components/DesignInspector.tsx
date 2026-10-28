@@ -315,7 +315,7 @@ function ReviewView({
                       <button
                         key={`${item.id}-${citation.url}`}
                         onClick={() =>
-                          void window.kern?.openExternal(citation.url)
+                          void window.mees?.openExternal(citation.url)
                         }
                         title={citation.title}
                         type="button"

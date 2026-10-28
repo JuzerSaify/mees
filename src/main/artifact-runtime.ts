@@ -148,17 +148,17 @@ async function measurePage(
       }
       if(mode==='motion'){
         const canvas=document.querySelector('canvas');
-        const motion=window.KERN_MOTION;
+        const motion=window.MEES_MOTION;
         if(!canvas){
           add('runtime-motion-canvas','error','Motion canvas missing','The rendered motion artifact contains no canvas.',document.body);
         }else if(!isVisible(canvas)||canvas.width<32||canvas.height<18){
           add('runtime-motion-stage','error','Motion stage is not visible','The canvas needs a measurable rendered stage.',canvas);
         }
         if(!motion||typeof motion!=='object'){
-          add('runtime-motion-api','error','Motion API missing','The page does not expose window.KERN_MOTION.',document.body);
+          add('runtime-motion-api','error','Motion API missing','The page does not expose window.MEES_MOTION.',document.body);
         }else{
           for(const method of ['renderAt','play','pause','seek']){
-            if(typeof motion[method]!=='function')add('runtime-motion-'+method,'error','Motion '+method+' control missing','window.KERN_MOTION.'+method+' must be callable.',canvas);
+            if(typeof motion[method]!=='function')add('runtime-motion-'+method,'error','Motion '+method+' control missing','window.MEES_MOTION.'+method+' must be callable.',canvas);
           }
           const media=document.querySelectorAll('audio,video');
           if(media.length)add('runtime-motion-media','error','Embedded audio or video found',media.length+' media element'+(media.length===1?' exists':'s exist')+' inside the deterministic motion artifact.',media[0]);
@@ -250,7 +250,7 @@ async function captureViewport(
   screenshot?: DesignScreenshot
   document?: ArtifactRuntimeReport['document']
 }> {
-  const partition = `kern-runtime-${randomUUID()}`
+  const partition = `mees-runtime-${randomUUID()}`
   const runtimeSession = session.fromPartition(partition, { cache: false })
   await registerRuntimeProtocol(runtimeSession, assets)
   const window = new BrowserWindow({

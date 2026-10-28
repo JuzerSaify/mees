@@ -18,13 +18,13 @@ afterEach(async () => {
 
 describe('content-addressed asset store', () => {
   it('stores, resolves and removes embedded images from artifact data', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'kern-assets-'))
+    const directory = await mkdtemp(join(tmpdir(), 'mees-assets-'))
     temporaryDirectories.push(directory)
     const assets = new AssetStore(directory)
     await assets.init()
     const stored = await assets.saveDataUrl(onePixelPng, 'reference')
     expect(stored?.token).toMatch(
-      /^kern-asset:\/\/asset\/[a-f0-9]{64}\.png$/
+      /^mees-asset:\/\/asset\/[a-f0-9]{64}\.png$/
     )
     expect(assetFileNameFromUrl(stored?.token ?? '')).toMatch(/\.png$/)
     expect(await assets.toDataUrl(stored?.token ?? '')).toBe(onePixelPng)
@@ -32,7 +32,7 @@ describe('content-addressed asset store', () => {
     const original = `<main><img src="${onePixelPng}" alt="Pixel"></main>`
     const assetized = await assets.assetizeHtml(original)
     expect(assetized).not.toContain('data:image/png;base64')
-    expect(assetized).toContain('kern-asset://asset/')
+    expect(assetized).toContain('mees-asset://asset/')
     expect(await assets.hydrateHtml(assetized)).toBe(original)
   })
 })

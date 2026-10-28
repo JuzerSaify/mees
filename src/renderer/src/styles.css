@@ -1,23 +1,23 @@
 :root {
   color-scheme: light;
-  --ground: #e9ece7;
-  --surface: #fcfcfa;
-  --surface-raised: #ffffff;
-  --surface-muted: #f4f5f1;
-  --surface-active: #e7eae5;
-  --border: #dde1db;
-  --border-strong: #cbd1ca;
-  --rule: #eaede8;
-  --ink: #181a18;
-  --muted: #5b625c;
-  --faint: #646b64;
-  --accent: #1b6c80;
-  --accent-soft: #e2eeef;
+  --ground: #e9e6df;
+  --surface: #fcfaf6;
+  --surface-raised: #fffdf9;
+  --surface-muted: #f4f0e9;
+  --surface-active: #ebe5dc;
+  --border: #ded8cf;
+  --border-strong: #cec6bb;
+  --rule: #ece6dd;
+  --ink: #21190f;
+  --muted: #625b52;
+  --faint: #6f675e;
+  --accent: #a84f1f;
+  --accent-soft: #f7e6d8;
   --positive: #247b50;
   --negative: #a7332a;
   --negative-soft: #fff5f3;
-  --shadow-popover: 0 14px 36px rgba(24, 28, 24, 0.14);
-  --shadow-composer: 0 5px 18px rgba(24, 28, 24, 0.06);
+  --shadow-popover: 0 14px 36px rgba(33, 25, 15, 0.14);
+  --shadow-composer: 0 5px 18px rgba(33, 25, 15, 0.06);
   --font-ui: 'Schibsted Grotesk Variable', 'Schibsted Grotesk', system-ui, sans-serif;
   --radius-sheet: 16px;
   --radius-panel: 8px;
@@ -93,7 +93,7 @@ a {
 
 ::selection {
   color: var(--ink);
-  background: #cce4e3;
+  background: #f2d8c6;
 }
 
 :focus-visible {
@@ -145,8 +145,15 @@ a {
   line-height: 1;
 }
 
+.wordmark.is-icon-only {
+  width: 24px;
+  height: 24px;
+  justify-content: center;
+}
+
 .brand-mark {
   display: block;
+  flex: none;
   color: var(--ink);
 }
 
@@ -522,8 +529,8 @@ a {
 }
 
 .agent-work.is-live {
-  padding: 7px 8px 6px;
-  border-radius: 7px;
+  padding: 8px;
+  border-radius: 8px;
   background: var(--surface-muted);
 }
 
@@ -531,8 +538,10 @@ a {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 10px;
-  padding: 0 1px 6px;
+  row-gap: 2px;
+  padding: 0 2px 7px;
   color: var(--muted);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
@@ -559,22 +568,27 @@ a {
 }
 
 .agent-work.is-live .agent-activity.is-running .activity-content {
-  border-left-color: var(--accent);
-  border-radius: 0 5px 5px 0;
-  background: var(--accent-soft);
-  padding-top: 5px;
-  padding-right: 6px;
-  padding-bottom: 5px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
 }
 
 .agent-work.is-live .agent-activity.is-running .activity-kind-icon {
   color: var(--accent);
 }
 
+.agent-work.is-live .agent-activity.is-running {
+  padding: 7px 8px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  animation: activity-in 180ms var(--ease-out);
+}
+
 .activity-timeline {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 5px;
   margin: 2px 0 13px;
 }
 
@@ -582,8 +596,8 @@ a {
   display: grid;
   min-width: 0;
   grid-template-columns: 18px minmax(0, 1fr);
-  gap: 7px;
-  padding: 4px 0;
+  gap: 8px;
+  padding: 3px 0;
 }
 
 .activity-kind-icon {
@@ -598,8 +612,8 @@ a {
 
 .activity-content {
   min-width: 0;
-  padding-left: 8px;
-  border-left: 1px solid var(--border);
+  padding-left: 0;
+  border-left: 0;
 }
 
 .activity-heading {
@@ -645,6 +659,7 @@ a {
   font-size: 12px;
   font-weight: 550;
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .activity-detail {
@@ -653,6 +668,7 @@ a {
   color: var(--muted);
   font-size: 11px;
   line-height: 1.4;
+  overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
@@ -932,6 +948,13 @@ a {
   from {
     opacity: 0;
     transform: translateY(3px);
+  }
+}
+
+@keyframes activity-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
   }
 }
 
@@ -3740,10 +3763,11 @@ a {
 
   .mobile-agent-toggle,
   .mobile-topbar-actions {
-    display: inline-flex;
+    display: inline-grid;
   }
 
   .mobile-topbar-actions {
+    grid-auto-flow: column;
     align-items: center;
     gap: 3px;
   }
@@ -3769,8 +3793,10 @@ a {
     width: min(420px, calc(100vw - 48px));
     padding: 0 12px 12px;
     background: var(--ground);
-    transform: translateX(-104%);
-    transition: transform 180ms ease-out;
+    box-shadow: 18px 0 42px rgba(33, 25, 15, 0.12);
+    transform: translate3d(-104%, 0, 0);
+    transition: transform 220ms var(--ease-out);
+    will-change: transform;
   }
 
   .agent-panel.is-mobile-open {
@@ -3791,7 +3817,8 @@ a {
     z-index: 35;
     display: block;
     border: 0;
-    background: rgba(24, 26, 24, 0.25);
+    background: rgba(33, 25, 15, 0.22);
+    animation: backdrop-in 180ms ease-out;
   }
 
   .onboarding-main {

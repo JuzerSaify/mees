@@ -6,16 +6,16 @@ describe('preview selection runtime', () => {
     const source = '<!doctype html><html><body><main>Design</main></body></html>'
     const injected = injectPreviewSelectionRuntime(source)
 
-    expect(injected).toContain('data-kern-selection-runtime')
-    expect(injected.indexOf('data-kern-selection-runtime')).toBeLessThan(
+    expect(injected).toContain('data-mees-selection-runtime')
+    expect(injected.indexOf('data-mees-selection-runtime')).toBeLessThan(
       injected.indexOf('</body>')
     )
-    expect(injected.match(/data-kern-selection-runtime/g)).toHaveLength(1)
+    expect(injected.match(/data-mees-selection-runtime/g)).toHaveLength(1)
   })
 
   it('does not inject twice', () => {
     const source =
-      '<html><body><script data-kern-selection-runtime></script></body></html>'
+      '<html><body><script data-mees-selection-runtime></script></body></html>'
     expect(injectPreviewSelectionRuntime(source)).toBe(source)
   })
 

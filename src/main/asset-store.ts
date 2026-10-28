@@ -7,7 +7,7 @@ import type {
   DesignVersion
 } from '../shared/types'
 
-export const ASSET_PROTOCOL = 'kern-asset'
+export const ASSET_PROTOCOL = 'mees-asset'
 
 const MIME_EXTENSIONS: Record<string, string> = {
   'image/png': 'png',
@@ -173,7 +173,7 @@ export class AssetStore {
     const tokens = Array.from(
       new Set(
         html.match(
-          /kern-asset:\/\/asset\/[a-f0-9]{64}\.[a-z0-9]{2,5}/gi
+          /mees-asset:\/\/asset\/[a-f0-9]{64}\.[a-z0-9]{2,5}/gi
         ) ?? []
       )
     )

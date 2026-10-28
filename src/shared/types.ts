@@ -61,7 +61,7 @@ export interface ProviderStatus {
 
 export type DesignMode = 'website' | 'logo' | 'vector' | 'motion'
 
-export interface KernSettings {
+export interface MeesSettings {
   onboardingComplete: boolean
   reviewAfterBuild: boolean
   activeProvider: ProviderId | null
@@ -292,7 +292,7 @@ export interface AppProject {
 }
 
 export interface AppSnapshot {
-  settings: KernSettings
+  settings: MeesSettings
   projects: AppProject[]
   designMemory: DesignMemoryEntry[]
 }
@@ -475,7 +475,7 @@ export interface ExportResult {
   filePath?: string
 }
 
-export interface KernApi {
+export interface MeesApi {
   getState: () => Promise<AppSnapshot>
   connectProvider: (provider: ProviderId, apiKey: string) => Promise<AppSnapshot>
   disconnectProvider: (provider: ProviderId) => Promise<AppSnapshot>
@@ -505,23 +505,23 @@ export interface KernApi {
 }
 
 export const IPC_CHANNELS = {
-  getState: 'kern:get-state',
-  connectProvider: 'kern:connect-provider',
-  disconnectProvider: 'kern:disconnect-provider',
-  refreshModels: 'kern:refresh-models',
-  selectModel: 'kern:select-model',
-  savePreferences: 'kern:save-preferences',
-  saveProject: 'kern:save-project',
-  deleteProject: 'kern:delete-project',
-  captureArtifact: 'kern:capture-artifact',
-  saveDesignMemory: 'kern:save-design-memory',
-  deleteDesignMemory: 'kern:delete-design-memory',
-  startAgent: 'kern:start-agent',
-  cancelAgent: 'kern:cancel-agent',
-  agentEvent: 'kern:agent-event',
-  exportHtml: 'kern:export-html',
-  exportMotion: 'kern:export-motion',
-  openPreview: 'kern:open-preview',
-  openDataFolder: 'kern:open-data-folder',
-  openExternal: 'kern:open-external'
+  getState: 'mees:get-state',
+  connectProvider: 'mees:connect-provider',
+  disconnectProvider: 'mees:disconnect-provider',
+  refreshModels: 'mees:refresh-models',
+  selectModel: 'mees:select-model',
+  savePreferences: 'mees:save-preferences',
+  saveProject: 'mees:save-project',
+  deleteProject: 'mees:delete-project',
+  captureArtifact: 'mees:capture-artifact',
+  saveDesignMemory: 'mees:save-design-memory',
+  deleteDesignMemory: 'mees:delete-design-memory',
+  startAgent: 'mees:start-agent',
+  cancelAgent: 'mees:cancel-agent',
+  agentEvent: 'mees:agent-event',
+  exportHtml: 'mees:export-html',
+  exportMotion: 'mees:export-motion',
+  openPreview: 'mees:open-preview',
+  openDataFolder: 'mees:open-data-folder',
+  openExternal: 'mees:open-external'
 } as const

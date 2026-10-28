@@ -6,5 +6,11 @@ release/
 **/.taste-skill/
 .ui-check/
 .tooling/
+.vercel/
 *.log
 *.tsbuildinfo
+.env
+.env.*
+!.env.example
+mees-launch-film/renders/
+mees-launch-film/frames/

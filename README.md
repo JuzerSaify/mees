@@ -1,6 +1,6 @@
-# Kern
+# Mees
 
-Kern is a local-first desktop design agent. It connects to a paid API account you own, streams a complete HTML interface into a live canvas, and keeps each project on your machine.
+Mees is a local-first desktop design agent. It connects to a paid API account you own, streams a complete HTML interface into a live canvas, and keeps each project on your machine.
 
 Supported providers:
 
@@ -18,11 +18,11 @@ npm install
 npm run dev
 ```
 
-On first launch, connect at least one provider with its API key. Kern verifies the key by loading the text-model catalog from that account. Model choices are discovered at runtime, so newly released models appear without an application update.
+On first launch, connect at least one provider with its API key. Mees verifies the key by loading the text-model catalog from that account. Model choices are discovered at runtime, so newly released models appear without an application update.
 
 The model menu is filtered to direct text-generation families used by the design agent. Retired entries and audio, image, embedding, live, transcription, music and managed-agent models stay out of the selector. Switching models happens inside the composer, with the model name and a compact effort summary on the trigger.
 
-Reasoning effort lives in the same composer menu. Kern exposes each model's native levels, keeps a separate choice per provider model, and maps that choice to the provider's real request control. Models without an adjustable effort setting fall back to their default behavior.
+Reasoning effort lives in the same composer menu. Mees exposes each model's native levels, keeps a separate choice per provider model, and maps that choice to the provider's real request control. Models without an adjustable effort setting fall back to their default behavior.
 
 No API keys are included with this project. Provider usage is billed to the account associated with the key you connect.
 
@@ -30,7 +30,7 @@ No API keys are included with this project. Provider usage is billed to the acco
 
 - API keys are encrypted with Electron `safeStorage` before being written to disk.
 - Windows uses DPAPI, macOS uses Keychain, and Linux requires a protected secret store.
-- Kern refuses to persist keys when only the unprotected Linux fallback is available.
+- Mees refuses to persist keys when only the unprotected Linux fallback is available.
 - Keys are decrypted only in the Electron main process and sent only to the provider selected for a request.
 - Generated designs run in a sandboxed iframe without same-origin access to the app.
 - Local data files are written with owner-only permissions where the platform supports them.
@@ -50,7 +50,7 @@ App data is stored in Electron's per-user data directory. You can open it from *
 
 The agent timeline shows only activity emitted by the main process: provider attempts, first token, model turns, each tool call, artifact writing, browser playback and review. Tool steps remain expanded while the agent is working, then fold into a clickable completion summary. Opening it restores the full trail, source favicons, per-stage timings, query count, pages read, evidence and conflicts, total run time, and the measured change in findings for the new revision. Those percentages are operational comparisons, not a universal measure of model intelligence.
 
-Reference images are treated as visual evidence, not instructions. Kern measures palette, aspect, luminance, contrast, colorfulness and edge density locally, then keeps the reference beside the current browser capture in split and overlay comparison modes. Models without image input keep the composer in a text-only state and explain why before a request can be sent.
+Reference images are treated as visual evidence, not instructions. Mees measures palette, aspect, luminance, contrast, colorfulness and edge density locally, then keeps the reference beside the current browser capture in split and overlay comparison modes. Models without image input keep the composer in a text-only state and explain why before a request can be sent.
 
 The design review records a structural fingerprint for each artifact. New runs receive the last three fingerprints from the same mode and are instructed to change the opening composition, media strategy, background logic, typography character and rhythm. A repeated direction is flagged during review.
 
@@ -63,11 +63,11 @@ The design review records a structural fingerprint for each artifact. New runs r
 
 Project conversations and the latest design source are saved locally and can be reopened from **Designs**.
 
-Reference images, fetched images and browser screenshots are stored as content-addressed files under the local data directory instead of being embedded in `projects.json`. Saved projects refer to the same durable `kern-asset` URLs used by the preview and can be exported with those assets inlined.
+Reference images, fetched images and browser screenshots are stored as content-addressed files under the local data directory instead of being embedded in `projects.json`. Saved projects refer to the same durable `mees-asset` URLs used by the preview and can be exported with those assets inlined.
 
 Reviewed palettes, type and an optional saved logo or vector mark can be kept in **Design memory**. Approved memory is available to future agent runs as a constraint; it does not force the previous layout, and recent-design diversity still applies.
 
-Before a run, Kern compacts older turns against the selected model's context window while retaining the original brief and recent conversation. A transient provider failure is retried once before any stream is consumed.
+Before a run, Mees compacts older turns against the selected model's context window while retaining the original brief and recent conversation. A transient provider failure is retried once before any stream is consumed.
 
 ## Verification
 

@@ -26,7 +26,7 @@ function BridgeError({
     <div className="opening-screen error-screen">
       <Wordmark />
       <AlertCircle aria-hidden="true" size={24} />
-      <h1>Kern could not open</h1>
+      <h1>Mees could not open</h1>
       <p>{message}</p>
       <button className="secondary-button" onClick={onRetry} type="button">
         <RotateCcw aria-hidden="true" size={14} />
@@ -45,12 +45,12 @@ export function App(): React.JSX.Element {
     setLoading(true)
     setError('')
     try {
-      if (!window.kern) {
+      if (!window.mees) {
         throw new Error(
-          'The secure desktop bridge did not load. Open Kern through the Electron app, not a browser tab.'
+          'The secure desktop bridge did not load. Open Mees through the Electron app, not a browser tab.'
         )
       }
-      setSnapshot(await window.kern.getState())
+      setSnapshot(await window.mees.getState())
     } catch (caught) {
       setError(errorMessage(caught))
     } finally {

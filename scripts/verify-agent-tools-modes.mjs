@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const screenshotDirectory = join(root, '.ui-check', 'agent-tools-modes')
 await mkdir(screenshotDirectory, { recursive: true })
-const userData = await mkdtemp(join(tmpdir(), 'kern-tools-modes-'))
+const userData = await mkdtemp(join(tmpdir(), 'mees-tools-modes-'))
 
 const website = `<!doctype html>
 <html lang="en">
@@ -94,7 +94,7 @@ const tick=(now)=>{
   draw(time);
   frame=requestAnimationFrame(tick);
 };
-window.KERN_MOTION={
+window.MEES_MOTION={
   width:1280,
   height:720,
   fps:30,
@@ -130,14 +130,14 @@ const brokenMotion = `<!doctype html><html><head><meta charset="utf-8"><title>Bl
 const canvas=document.querySelector('canvas');
 const context=canvas.getContext('2d',{willReadFrequently:true});
 const draw=(time)=>{context.fillStyle='#000';context.fillRect(0,0,canvas.width,canvas.height)};
-window.KERN_MOTION={width:320,height:180,fps:30,duration:4,renderAt:draw,play(){},pause(){},seek:draw};
+window.MEES_MOTION={width:320,height:180,fps:30,duration:4,renderAt:draw,play(){},pause(){},seek:draw};
 draw(0);
 </script></body></html>`
 
 const negativeArtifacts = [
   {
     mode: 'website',
-    html: '<!doctype html><html lang="en"><head><title>Overflow</title></head><body><h1>Broken</h1><div style="width:1800px;height:80px">Overflow</div><img src="kern-asset://asset/0000000000000000000000000000000000000000000000000000000000000000.png" alt="Missing"></body></html>',
+    html: '<!doctype html><html lang="en"><head><title>Overflow</title></head><body><h1>Broken</h1><div style="width:1800px;height:80px">Overflow</div><img src="mees-asset://asset/0000000000000000000000000000000000000000000000000000000000000000.png" alt="Missing"></body></html>',
     expected: ['runtime-horizontal-overflow']
   },
   {
@@ -221,7 +221,7 @@ try {
     cwd: root,
     env: {
       ...process.env,
-      KERN_USER_DATA_DIR: userData
+      MEES_USER_DATA_DIR: userData
     }
   })
   const page = await application.firstWindow()
@@ -240,7 +240,7 @@ try {
   for (const [mode, html] of Object.entries(artifacts)) {
     const capture = await page.evaluate(
       async ({ html: source, designMode }) =>
-        window.kern.captureArtifact(source, designMode),
+        window.mees.captureArtifact(source, designMode),
       { html, designMode: mode }
     )
     const expectedScreenshots = mode === 'website' ? 3 : 1
@@ -271,7 +271,7 @@ try {
   for (const check of negativeArtifacts) {
     const capture = await page.evaluate(
       async ({ html: source, designMode }) =>
-        window.kern.captureArtifact(source, designMode),
+        window.mees.captureArtifact(source, designMode),
       { html: check.html, designMode: check.mode }
     )
     const detected = new Set([

@@ -126,7 +126,7 @@ export function ModelPicker({
     setBusyModel(`${provider}:${model}`)
     setError('')
     try {
-      const next = await window.kern?.selectModel(provider, model)
+      const next = await window.mees?.selectModel(provider, model)
       if (next) onSnapshot(next)
     } catch (caught) {
       setError(errorMessage(caught))
@@ -140,7 +140,7 @@ export function ModelPicker({
     setBusyEffort(effort)
     setError('')
     try {
-      const next = await window.kern?.savePreferences({ activeEffort: effort })
+      const next = await window.mees?.savePreferences({ activeEffort: effort })
       if (next) onSnapshot(next)
     } catch (caught) {
       setError(errorMessage(caught))

@@ -253,9 +253,9 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
 
   const persistProject = useCallback(
     async (project: AppProject): Promise<AppProject> => {
-      if (!window.kern) throw new Error('The desktop bridge is unavailable.')
+      if (!window.mees) throw new Error('The desktop bridge is unavailable.')
       try {
-        const saved = await window.kern.saveProject(project)
+        const saved = await window.mees.saveProject(project)
         updateProjects((current) =>
           current.map((item) =>
             item.id === saved.id ? { ...item, updatedAt: saved.updatedAt } : item
@@ -311,7 +311,7 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
         const reviewStartedAt = new Date().toISOString()
         const [localResult, runtimeResult] = await Promise.allSettled([
           auditArtifactDesign(designHtml, revision, designMode),
-          window.kern?.captureArtifact(designHtml, designMode)
+          window.mees?.captureArtifact(designHtml, designMode)
         ])
         if (localResult.status === 'rejected') throw localResult.reason
         const runtimeMessage =
@@ -584,11 +584,11 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
   }, [flushStream])
 
   useEffect(() => {
-    document.title = activeProject ? `${activeProject.title} - Kern` : 'Kern'
+    document.title = activeProject ? `${activeProject.title} - Mees` : 'Mees'
   }, [activeProject?.title])
 
   useEffect(() => {
-    const unsubscribe = window.kern?.onAgentEvent((event: AgentStreamEvent) => {
+    const unsubscribe = window.mees?.onAgentEvent((event: AgentStreamEvent) => {
       let activeRun = runRef.current
       if (!activeRun) return
       if (!activeRun.requestId) {
@@ -1063,7 +1063,7 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
       }
       if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current)
       const requestId = runRef.current?.requestId
-      if (requestId) void window.kern?.cancelAgent(requestId)
+      if (requestId) void window.mees?.cancelAgent(requestId)
     }
   }, [])
 
@@ -1237,7 +1237,7 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
             entry.kind === 'typography'
         )
         .slice(-6)
-      const result = await window.kern?.startAgent({
+      const result = await window.mees?.startAgent({
         provider,
         model,
         effort: effort ?? undefined,
@@ -1257,7 +1257,7 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
         commitRun({ ...latestRun, requestId: result.requestId })
       }
       if (cancelRequestedRef.current) {
-        await window.kern?.cancelAgent(result.requestId)
+        await window.mees?.cancelAgent(result.requestId)
       }
     } catch (caught) {
       const message = errorMessage(caught)
@@ -1446,7 +1446,7 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
     const requestId = runRef.current?.requestId
     cancelRequestedRef.current = true
     if (requestId) {
-      void window.kern?.cancelAgent(requestId).catch((caught: unknown) => {
+      void window.mees?.cancelAgent(requestId).catch((caught: unknown) => {
         showToast(errorMessage(caught), 'error')
       })
     }
@@ -1478,7 +1478,7 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
 
   async function deleteProject(projectId: string): Promise<void> {
     try {
-      await window.kern?.deleteProject(projectId)
+      await window.mees?.deleteProject(projectId)
       const next = updateProjects((current) =>
         current.filter((project) => project.id !== projectId)
       )
@@ -1521,11 +1521,11 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
     try {
       const result =
         activeProject.designMode === 'motion'
-          ? await window.kern?.exportMotion(
+          ? await window.mees?.exportMotion(
               activeProject.designHtml,
               activeProject.title
             )
-          : await window.kern?.exportHtml(
+          : await window.mees?.exportHtml(
               activeProject.designHtml,
               activeProject.title,
               activeProject.designMode
@@ -1542,7 +1542,7 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
   }
 
   async function saveCurrentDesignMemory(): Promise<void> {
-    if (!activeProject?.audit || !window.kern) return
+    if (!activeProject?.audit || !window.mees) return
     const audit =
       activeProject.audit.revision === activeProject.revision
         ? activeProject.audit
@@ -1573,7 +1573,7 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
       createdAt: new Date().toISOString()
     }
     try {
-      const next = await window.kern.saveDesignMemory(entry)
+      const next = await window.mees.saveDesignMemory(entry)
       onSnapshot(next)
       showToast('Saved the direction to design memory.', 'success')
     } catch (caught) {
@@ -1585,7 +1585,7 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
   async function saveReferenceMemory(
     image: AgentReferenceImage
   ): Promise<void> {
-    if (!activeProject || !window.kern) return
+    if (!activeProject || !window.mees) return
     const entry: DesignMemoryEntry = {
       id: `reference-${activeProject.id}-${image.id}`,
       kind: 'asset',
@@ -1599,7 +1599,7 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
       createdAt: new Date().toISOString()
     }
     try {
-      const next = await window.kern.saveDesignMemory(entry)
+      const next = await window.mees.saveDesignMemory(entry)
       onSnapshot(next)
       showToast('Saved the reference as an approved asset.', 'success')
     } catch (caught) {
@@ -1609,9 +1609,9 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
   }
 
   async function deleteDesignMemoryEntry(entryId: string): Promise<void> {
-    if (!window.kern) return
+    if (!window.mees) return
     try {
-      const next = await window.kern.deleteDesignMemory(entryId)
+      const next = await window.mees.deleteDesignMemory(entryId)
       onSnapshot(next)
     } catch (caught) {
       showToast(errorMessage(caught), 'error')
@@ -1622,7 +1622,7 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
   async function openPreview(): Promise<void> {
     if (!activeProject?.designHtml) return
     try {
-      await window.kern?.openPreview(activeProject.designHtml, activeProject.title)
+      await window.mees?.openPreview(activeProject.designHtml, activeProject.title)
     } catch (caught) {
       showToast(errorMessage(caught), 'error')
     }
@@ -1640,7 +1640,7 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
   return (
     <div className="studio-page">
       <header className="app-topbar studio-topbar">
-        <Wordmark />
+        <Wordmark iconOnly />
         <span className="topbar-separator" aria-hidden="true" />
         <button
           aria-label="Open agent"

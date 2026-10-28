@@ -31,7 +31,7 @@ export function applyDesignPatch(
 
   if (patch.styles?.trim()) {
     const style = documentNode.createElement('style')
-    style.setAttribute('data-kern-edit-target', target.selector)
+    style.setAttribute('data-mees-edit-target', target.selector)
     style.textContent = patch.styles.trim()
     documentNode.head.appendChild(style)
   }

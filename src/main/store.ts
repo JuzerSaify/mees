@@ -10,7 +10,7 @@ import {
   type DesignMemoryEntry,
   type DesignVersion,
   type DesignMode,
-  type KernSettings,
+  type MeesSettings,
   type ModelInfo,
   type PreferencesUpdate,
   type ProviderId,
@@ -317,7 +317,7 @@ function sanitizeDesignMemory(value: unknown): DesignMemoryEntry[] {
     .slice(-40)
 }
 
-export class KernStore {
+export class MeesStore {
   readonly dataDirectory = app.getPath('userData')
   readonly assetStore = new AssetStore(this.dataDirectory)
   private readonly settingsPath = join(this.dataDirectory, 'settings.json')
@@ -564,7 +564,7 @@ export class KernStore {
     const activeModel = this.normalizedActiveModel()
     const activeEffort = this.normalizedActiveEffort()
 
-    const settings: KernSettings = {
+    const settings: MeesSettings = {
       onboardingComplete: this.settings.onboardingComplete,
       reviewAfterBuild: this.settings.reviewAfterBuild,
       activeProvider,
@@ -726,7 +726,7 @@ export class KernStore {
       if (safeStorage.decryptString) return safeStorage.decryptString(encrypted)
     } catch {
       throw new Error(
-        'Kern could not unlock the saved API key. Reconnect the provider in Settings.'
+        'Mees could not unlock the saved API key. Reconnect the provider in Settings.'
       )
     }
 
@@ -736,7 +736,7 @@ export class KernStore {
   async encryptApiKey(apiKey: string): Promise<string> {
     if (!(await this.encryptionAvailable())) {
       throw new Error(
-        'OS-protected storage is unavailable. Kern will not save API keys in plain text.'
+        'OS-protected storage is unavailable. Mees will not save API keys in plain text.'
       )
     }
 

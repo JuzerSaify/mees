@@ -55,7 +55,7 @@ describe('assistant protocol', () => {
       now
     })
 
-    expect(prompt).toContain('window.KERN_MOTION')
+    expect(prompt).toContain('window.MEES_MOTION')
     expect(prompt).toContain('renderAt(time)')
     expect(prompt).toContain('between 3 and 15 seconds')
     expect(prompt).toContain('No audio')

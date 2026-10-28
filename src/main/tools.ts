@@ -8,7 +8,7 @@ type JsonRecord = Record<string, unknown>
 
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
-  '(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 Kern/0.1'
+  '(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 Mees/0.1'
 const SEARCH_TIMEOUT_MS = 18_000
 const ASSET_TIMEOUT_MS = 12_000
 const MAX_ASSET_BYTES = 1_750_000
@@ -1187,7 +1187,7 @@ export async function fetchWebAssets(
       const id = `asset-${hashText(candidate.url)}`
       return {
         id,
-        token: `kern-asset://${id}`,
+        token: `mees-asset://${id}`,
         kind: candidate.kind,
         title: candidate.title,
         pageUrl: candidate.pageUrl,

@@ -262,7 +262,7 @@ describe('web asset extraction', () => {
       width: 1200,
       height: 800
     })
-    expect(assets[0]?.token).toMatch(/^kern-asset:\/\//)
+    expect(assets[0]?.token).toMatch(/^mees-asset:\/\//)
     expect(assets[0]?.dataUrl).toMatch(/^data:image\/png;base64,/)
     expect(assets[1]).toMatchObject({
       kind: 'icon',
@@ -285,7 +285,7 @@ describe('web asset extraction', () => {
       [
         {
           id: 'asset-a1',
-          token: 'kern-asset://asset-a1',
+          token: 'mees-asset://asset-a1',
           kind: 'image',
           title: 'Workshop',
           pageUrl: 'https://example.com',
@@ -300,20 +300,20 @@ describe('web asset extraction', () => {
     )
 
     expect(context).toContain('Fetched web assets')
-    expect(context).toContain('kern-asset://asset-a1')
+    expect(context).toContain('mees-asset://asset-a1')
     expect(context).toContain('dimensions: 1200x800')
     expect(context).toContain('Credit the source page')
   })
 })
 
-describe.skipIf(process.env.KERN_LIVE_TOOL_CHECK !== '1')(
+describe.skipIf(process.env.MEES_LIVE_TOOL_CHECK !== '1')(
   'live tool contract',
   () => {
     it(
       'reaches public search and page-asset sources',
       async () => {
         const query =
-          process.env.KERN_LIVE_VISUAL_QUERY ||
+          process.env.MEES_LIVE_VISUAL_QUERY ||
           'official Northumberland architecture studio'
         const signal = AbortSignal.timeout(60_000)
         const [sources, assets] = await Promise.all([

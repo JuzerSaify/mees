@@ -43,7 +43,7 @@ import {
   runAgentTurn,
   type AgentConversationMessage
 } from './providers'
-import { KernStore } from './store'
+import { MeesStore } from './store'
 import { compactAgentHistory } from './context'
 import {
   getEffortSupport,
@@ -63,13 +63,16 @@ import {
 } from './asset-store'
 import { captureArtifactRuntime } from './artifact-runtime'
 import { attachSourceIcons } from './source-icons'
+import { migrateLegacyUserData } from './user-data-migration'
 
 const currentDirectory = fileURLToPath(new URL('.', import.meta.url))
 const isDevelopment = Boolean(process.env.ELECTRON_RENDERER_URL)
+const hasIsolatedUserData = !app.isPackaged && Boolean(process.env.MEES_USER_DATA_DIR)
+const legacyUserDataFolder = 'kern'
 
 let mainWindow: BrowserWindow | null = null
-let store: KernStore
-app.setName('Kern')
+let store: MeesStore
+app.setName('Mees')
 protocol.registerSchemesAsPrivileged([
   {
     scheme: ASSET_PROTOCOL,
@@ -83,8 +86,8 @@ protocol.registerSchemesAsPrivileged([
   }
 ])
 
-if (!app.isPackaged && process.env.KERN_USER_DATA_DIR) {
-  app.setPath('userData', process.env.KERN_USER_DATA_DIR)
+if (hasIsolatedUserData && process.env.MEES_USER_DATA_DIR) {
+  app.setPath('userData', process.env.MEES_USER_DATA_DIR)
 }
 
 const agentRequests = new Map<
@@ -167,7 +170,7 @@ async function recordMotionVideo(
     await new Promise((resolve) => setTimeout(resolve, 800))
     const result = (await recorderWindow.webContents.executeJavaScript(
       `(async()=>{
-        const motion=window.KERN_MOTION;
+        const motion=window.MEES_MOTION;
         const canvas=document.querySelector('canvas');
         if(!motion||!canvas||typeof motion.renderAt!=='function'){
           throw new Error('This motion document does not expose the required renderAt timeline.');
@@ -780,16 +783,16 @@ async function createMainWindow(): Promise<void> {
     minWidth: 1000,
     minHeight: 700,
     show: false,
-    backgroundColor: '#ECEEEA',
-    title: 'Kern',
+    backgroundColor: '#E9E6DF',
+    title: 'Mees',
     icon: iconPath,
     titleBarStyle: 'hidden',
     titleBarOverlay:
       process.platform === 'darwin'
         ? undefined
         : {
-            color: '#ECEEEA',
-            symbolColor: '#181A18',
+            color: '#E9E6DF',
+            symbolColor: '#21190F',
             height: 48
           },
     webPreferences: {
@@ -1615,10 +1618,10 @@ function registerIpc(): void {
       if (typeof rawHtml !== 'string' || !rawHtml.trim()) {
         throw new Error('There is no design to export yet.')
       }
-      const title = typeof rawTitle === 'string' && rawTitle.trim() ? rawTitle.trim() : 'Kern design'
+      const title = typeof rawTitle === 'string' && rawTitle.trim() ? rawTitle.trim() : 'Mees design'
       const designMode = validateDesignMode(rawDesignMode)
       const isVector = designMode === 'logo' || designMode === 'vector'
-      const filename = `${exportFileBase(title, 'kern-design')}.${
+      const filename = `${exportFileBase(title, 'mees-design')}.${
         isVector ? 'svg' : 'html'
       }`
 
@@ -1650,8 +1653,8 @@ function registerIpc(): void {
       const title =
         typeof rawTitle === 'string' && rawTitle.trim()
           ? rawTitle.trim()
-          : 'Kern motion'
-      const filename = `${exportFileBase(title, 'kern-motion')}.webm`
+          : 'Mees motion'
+      const filename = `${exportFileBase(title, 'mees-motion')}.webm`
       const options: Electron.SaveDialogOptions = {
         title: 'Export silent motion video',
         defaultPath: join(app.getPath('documents'), filename),
@@ -1673,7 +1676,7 @@ function registerIpc(): void {
       if (typeof rawHtml !== 'string' || !rawHtml.trim()) {
         throw new Error('There is no design to preview yet.')
       }
-      const title = typeof rawTitle === 'string' && rawTitle.trim() ? rawTitle.trim() : 'Kern preview'
+      const title = typeof rawTitle === 'string' && rawTitle.trim() ? rawTitle.trim() : 'Mees preview'
       const previewWindow = new BrowserWindow({
         width: 1280,
         height: 860,
@@ -1716,8 +1719,18 @@ function registerIpc(): void {
 }
 
 async function boot(): Promise<void> {
-  app.setAppUserModelId('studio.kern.desktop')
-  store = new KernStore()
+  app.setAppUserModelId('studio.mees.desktop')
+  if (!hasIsolatedUserData) {
+    try {
+      await migrateLegacyUserData(
+        join(app.getPath('appData'), legacyUserDataFolder),
+        app.getPath('userData')
+      )
+    } catch (error) {
+      console.warn('Could not migrate legacy app data.', error)
+    }
+  }
+  store = new MeesStore()
   await store.init()
   await registerDefaultAssetProtocol(store.assetStore)
   registerIpc()
@@ -1738,7 +1751,7 @@ if (hasSingleInstanceLock) {
 
   app.whenReady().then(boot).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error)
-    dialog.showErrorBox('Kern could not start', message)
+    dialog.showErrorBox('Mees could not start', message)
     app.quit()
   })
 

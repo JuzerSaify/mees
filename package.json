@@ -1,11 +1,11 @@
 {
-  "name": "kern",
+  "name": "mees",
   "version": "0.1.0",
   "private": true,
   "description": "A local-first, bring-your-own-key design agent for desktop.",
   "type": "module",
   "main": "./out/main/index.js",
-  "author": "Kern",
+  "author": "Mees",
   "license": "UNLICENSED",
   "engines": {
     "node": ">=22.12.0"
@@ -44,8 +44,9 @@
     "vitest": "5.0.5"
   },
   "build": {
-    "appId": "studio.kern.desktop",
-    "productName": "Kern",
+    "appId": "studio.mees.desktop",
+    "productName": "Mees",
+    "artifactName": "Mees-Setup-${version}.${ext}",
     "asar": true,
     "directories": {
       "output": "release"
@@ -61,11 +62,13 @@
     },
     "mac": {
       "target": "dmg",
-      "category": "public.app-category.graphics-design"
+      "category": "public.app-category.graphics-design",
+      "icon": "build/icon.png"
     },
     "linux": {
       "target": "AppImage",
-      "category": "Graphics"
+      "category": "Graphics",
+      "icon": "build/icon.png"
     },
     "nsis": {
       "oneClick": false,

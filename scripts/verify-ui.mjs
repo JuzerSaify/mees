@@ -16,7 +16,7 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const screenshotDirectory = join(root, '.ui-check')
 await mkdir(screenshotDirectory, { recursive: true })
 
-const userData = await mkdtemp(join(tmpdir(), 'kern-ui-'))
+const userData = await mkdtemp(join(tmpdir(), 'mees-ui-'))
 const assetDirectory = join(userData, 'assets')
 await mkdir(assetDirectory, { recursive: true })
 await writeFile(
@@ -53,7 +53,7 @@ await writeFile(
 )
 
 const reference = await readFile(
-  join(root, 'kern-product-site', 'assets', 'proof-modes.webp')
+  join(root, 'mees-product-site', 'assets', 'proof-modes.webp')
 )
 async function storedSvgIcon(letter, color) {
   const svg = Buffer.from(
@@ -62,7 +62,7 @@ async function storedSvgIcon(letter, color) {
   )
   const fileName = `${createHash('sha256').update(svg).digest('hex')}.svg`
   await writeFile(join(assetDirectory, fileName), svg)
-  return `kern-asset://asset/${fileName}`
+  return `mees-asset://asset/${fileName}`
 }
 const archiveIcon = await storedSvgIcon('A', '#1b566d')
 const recordIcon = await storedSvgIcon('R', '#8a541f')
@@ -321,7 +321,7 @@ try {
     cwd: root,
     env: {
       ...process.env,
-      KERN_USER_DATA_DIR: userData
+      MEES_USER_DATA_DIR: userData
     }
   })
   const page = await application.firstWindow()
@@ -359,9 +359,22 @@ try {
         height: Math.round(box.height)
       }
     }
+    const titlebarBrand = document.querySelector('.studio-topbar .wordmark')
+    const titlebarIcon = titlebarBrand?.querySelector('.brand-mark')
+    const iconBox = titlebarIcon?.getBoundingClientRect()
     return {
       viewport: { width: window.innerWidth, height: window.innerHeight },
       topbar: rect('.studio-topbar'),
+      titlebarBrand: {
+        text: titlebarBrand?.textContent?.trim() ?? '',
+        ariaLabel: titlebarBrand?.getAttribute('aria-label') ?? '',
+        iconWidth: Math.round(iconBox?.width ?? 0),
+        iconHeight: Math.round(iconBox?.height ?? 0)
+      },
+      activityBorderLeft: (() => {
+        const content = document.querySelector('.activity-content')
+        return content ? getComputedStyle(content).borderLeftWidth : null
+      })(),
       agent: rect('.agent-panel'),
       sheet: rect('.workspace-sheet'),
       toolbar: rect('.canvas-toolbar'),
@@ -377,6 +390,18 @@ try {
         document.documentElement.scrollWidth - window.innerWidth
     }
   })
+  if (
+    geometry.titlebarBrand.text ||
+    geometry.titlebarBrand.ariaLabel !== 'Mees' ||
+    geometry.titlebarBrand.iconWidth !== 24 ||
+    geometry.titlebarBrand.iconHeight !== 24 ||
+    (geometry.activityBorderLeft !== null &&
+      geometry.activityBorderLeft !== '0px')
+  ) {
+    throw new Error(
+      'The app title bar or agent activity layout failed its visual contract.'
+    )
+  }
 
   const review = page.getByRole('button', { name: /Open design review/i })
   await review.click()
@@ -466,6 +491,39 @@ try {
     path: join(screenshotDirectory, 'seven-upgrades-narrow.png')
   })
 
+  const closeInspector = page.getByRole('button', {
+    name: 'Close design tools'
+  })
+  if (await closeInspector.count()) await closeInspector.click()
+  await page.setViewportSize({ width: 439, height: 900 })
+  await page.waitForTimeout(250)
+  const openAgent = page.getByRole('button', { name: 'Open agent' })
+  if (await openAgent.isVisible()) await openAgent.click()
+  await page.waitForTimeout(260)
+  const mobileGeometry = await page.evaluate(() => {
+    const measure = (selector) => {
+      const element = document.querySelector(selector)
+      if (!element) return null
+      const box = element.getBoundingClientRect()
+      return {
+        x: Math.round(box.x),
+        right: Math.round(box.right),
+        width: Math.round(box.width),
+        height: Math.round(box.height)
+      }
+    }
+    return {
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      agent: measure('.agent-panel'),
+      composer: measure('.composer'),
+      overflow:
+        document.documentElement.scrollWidth - window.innerWidth
+    }
+  })
+  await page.screenshot({
+    path: join(screenshotDirectory, 'mees-agent-mobile.png')
+  })
+
   const storedProjects = await readFile(
     join(userData, 'projects.json'),
     'utf8'
@@ -477,6 +535,7 @@ try {
       {
         geometry,
         narrowGeometry,
+        mobileGeometry,
         messages,
         reviewStatus,
         memoryEntries: await page.locator('.memory-row').count(),
@@ -495,7 +554,8 @@ try {
           'seven-upgrades-reference-overlay.png',
           'seven-upgrades-memory.png',
           'seven-upgrades-files.png',
-          'seven-upgrades-narrow.png'
+          'seven-upgrades-narrow.png',
+          'mees-agent-mobile.png'
         ]
       },
       null,

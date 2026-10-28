@@ -22,7 +22,7 @@ afterEach(async () => {
 
 describe('source favicons', () => {
   it('stores a real fetched favicon and attaches its local token', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'kern-icons-'))
+    const directory = await mkdtemp(join(tmpdir(), 'mees-icons-'))
     temporaryDirectories.push(directory)
     const assets = new AssetStore(directory)
     await assets.init()
@@ -48,7 +48,7 @@ describe('source favicons', () => {
       assets
     )
     expect(source?.faviconUrl).toMatch(
-      /^kern-asset:\/\/asset\/[a-f0-9]{64}\.png$/
+      /^mees-asset:\/\/asset\/[a-f0-9]{64}\.png$/
     )
   })
 })

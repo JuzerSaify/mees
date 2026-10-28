@@ -7,7 +7,7 @@ import './styles.css'
 const root = document.getElementById('root')
 
 if (!root) {
-  throw new Error('Kern could not find the application root.')
+  throw new Error('Mees could not find the application root.')
 }
 
 createRoot(root).render(

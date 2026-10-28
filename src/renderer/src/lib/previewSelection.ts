@@ -1,6 +1,6 @@
 import type { DesignSelection } from '../../../shared/types'
 
-export const PREVIEW_SELECTION_CHANNEL = 'kern:preview-selection'
+export const PREVIEW_SELECTION_CHANNEL = 'mees:preview-selection'
 
 export type PreviewSelectionMessage =
   | { channel: typeof PREVIEW_SELECTION_CHANNEL; type: 'ready' }
@@ -20,26 +20,26 @@ function selectionRuntime(preferVectorTargets: boolean): string {
   const targetSelector = preferVectorTargets
     ? 'svg,g,path,rect,circle,ellipse,line,polyline,polygon,text,use'
     : 'section,article,header,footer,nav,main,figure,picture,img,h1,h2,h3,h4,h5,h6,p,a,button,input,select,textarea,li,div'
-  return `<script data-kern-selection-runtime>(function(){
-if(window.__kernPreviewSelection)return;
-window.__kernPreviewSelection=true;
+  return `<script data-mees-selection-runtime>(function(){
+if(window.__meesPreviewSelection)return;
+window.__meesPreviewSelection=true;
 var channel=${JSON.stringify(PREVIEW_SELECTION_CHANNEL)};
 var active=false;
 var selected=null;
 var hovered=null;
 var root=document.createElement('div');
-root.setAttribute('data-kern-selection-ui','');
+root.setAttribute('data-mees-selection-ui','');
 root.style.cssText='position:fixed;inset:0;z-index:2147483647;pointer-events:none;';
 var box=document.createElement('div');
-box.style.cssText='position:absolute;display:none;border:2px solid #1b6c80;background:rgba(27,108,128,.08);box-sizing:border-box;';
+box.style.cssText='position:absolute;display:none;border:2px solid #a84f1f;background:rgba(168,79,31,.08);box-sizing:border-box;';
 var tag=document.createElement('div');
 tag.style.cssText='position:absolute;display:none;max-width:240px;padding:3px 6px;border-radius:4px;background:#181a18;color:#fff;font:500 10px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
 root.appendChild(box);
 root.appendChild(tag);
 document.body.appendChild(root);
 var cursorStyle=document.createElement('style');
-cursorStyle.setAttribute('data-kern-selection-style','');
-cursorStyle.textContent='body.kern-selection-active,body.kern-selection-active *{cursor:crosshair!important}';
+cursorStyle.setAttribute('data-mees-selection-style','');
+cursorStyle.textContent='body.mees-selection-active,body.mees-selection-active *{cursor:crosshair!important}';
 document.head.appendChild(cursorStyle);
 function post(type,payload){
   var message={channel:channel,type:type};
@@ -80,7 +80,7 @@ function uniqueSelector(element){
   return parts.join(' > ');
 }
 function isUiNode(node){
-  return Boolean(node&&node.closest&&node.closest('[data-kern-selection-ui]'));
+  return Boolean(node&&node.closest&&node.closest('[data-mees-selection-ui]'));
 }
 function selectableTarget(node){
   if(!(node instanceof Element)||isUiNode(node))return null;
@@ -126,8 +126,8 @@ function place(element,isSelected){
   box.style.top=rect.y+'px';
   box.style.width=rect.width+'px';
   box.style.height=rect.height+'px';
-  box.style.borderColor=isSelected?'#1b6c80':'#4f8792';
-  box.style.background=isSelected?'rgba(27,108,128,.08)':'rgba(27,108,128,.045)';
+  box.style.borderColor=isSelected?'#a84f1f':'#b56a43';
+  box.style.background=isSelected?'rgba(168,79,31,.08)':'rgba(168,79,31,.045)';
   tag.style.display='block';
   tag.textContent=labelFor(element);
   var top=rect.y>=26?rect.y-24:rect.y+rect.height+4;
@@ -153,7 +153,7 @@ document.addEventListener('click',function(event){
   event.stopPropagation();
   selected=target;
   active=false;
-  document.body.classList.remove('kern-selection-active');
+  document.body.classList.remove('mees-selection-active');
   place(selected,true);
   post('selection',{target:snapshot(selected)});
   publishRect();
@@ -162,7 +162,7 @@ document.addEventListener('keydown',function(event){
   if(event.key!=='Escape')return;
   if(!active)return;
   active=false;
-  document.body.classList.remove('kern-selection-active');
+  document.body.classList.remove('mees-selection-active');
   hovered=null;
   place(selected,true);
   post('cancelled');
@@ -175,13 +175,13 @@ window.addEventListener('message',function(event){
   if(!data||data.channel!==channel)return;
   if(data.type==='set-mode'){
     active=data.active===true;
-    document.body.classList.toggle('kern-selection-active',active);
+    document.body.classList.toggle('mees-selection-active',active);
     if(!active){hovered=null;place(selected,true);publishRect();}
     return;
   }
   if(data.type==='clear'){
     selected=null;hovered=null;active=false;
-    document.body.classList.remove('kern-selection-active');
+    document.body.classList.remove('mees-selection-active');
     box.style.display='none';tag.style.display='none';
     return;
   }
@@ -195,7 +195,7 @@ export function injectPreviewSelectionRuntime(
   html: string,
   preferVectorTargets = false
 ): string {
-  if (!html.trim() || html.includes('data-kern-selection-runtime')) return html
+  if (!html.trim() || html.includes('data-mees-selection-runtime')) return html
   const runtime = selectionRuntime(preferVectorTargets)
   if (/<\/body>/i.test(html)) {
     return html.replace(/<\/body>/i, `${runtime}</body>`)

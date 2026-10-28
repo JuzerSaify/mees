@@ -1,8 +1,8 @@
-import type { KernApi } from '../../shared/types'
+import type { MeesApi } from '../../shared/types'
 
 declare global {
   interface Window {
-    kern?: KernApi
+    mees?: MeesApi
   }
 }
 

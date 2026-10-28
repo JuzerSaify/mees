@@ -131,7 +131,7 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
   {
     name: 'fetch_visual_assets',
     description:
-      'Find and validate real public images or website icons for website and motion work. The result includes exact kern-asset tokens that can be embedded in the final artifact. Use only when a real visual would improve the requested subject; logo and vector outputs should not embed raster assets.',
+      'Find and validate real public images or website icons for website and motion work. The result includes exact mees-asset tokens that can be embedded in the final artifact. Use only when a real visual would improve the requested subject; logo and vector outputs should not embed raster assets.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -145,7 +145,7 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
   {
     name: 'resolve_site_icon',
     description:
-      'Resolve a public website\'s real icon, logo mark or brand symbol and return an exact kern-asset token. Use this for a favicon or brand mark only when the named site is relevant to the brief; do not present a third-party icon as the user\'s own brand.',
+      'Resolve a public website\'s real icon, logo mark or brand symbol and return an exact mees-asset token. Use this for a favicon or brand mark only when the named site is relevant to the brief; do not present a third-party icon as the user\'s own brand.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -232,7 +232,7 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
   {
     name: 'crop_asset',
     description:
-      'Crop a fetched, derived or user reference image to a precise aspect ratio and produce a new real asset token. Source accepts a kern-asset token or reference:<id>. Use focus to keep the meaningful subject area.',
+      'Crop a fetched, derived or user reference image to a precise aspect ratio and produce a new real asset token. Source accepts a mees-asset token or reference:<id>. Use focus to keep the meaningful subject area.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -489,8 +489,8 @@ async function imageSource(
     state.referenceAssets?.[referenceId] ??
     state.referenceAssets?.[requested] ??
     requested
-  if (!token.startsWith('kern-asset://asset/')) {
-    throw new Error('The image operation needs a saved kern-asset token.')
+  if (!token.startsWith('mees-asset://asset/')) {
+    throw new Error('The image operation needs a saved mees-asset token.')
   }
   if (!state.readAsset) {
     throw new Error('The local asset store is unavailable.')
@@ -636,7 +636,7 @@ export async function executeAgentTool(
         assets: assets.map(assetSummary),
         usage:
           assets.length > 0
-            ? 'Use the exact kern-asset token in the artifact and credit page_url.'
+            ? 'Use the exact mees-asset token in the artifact and credit page_url.'
             : 'No accurate public visual passed validation. Do not substitute an unrelated stock image.'
       })
     }

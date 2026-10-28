@@ -31,7 +31,7 @@ export function Onboarding({
   const modelCount = connected.reduce((count, provider) => count + provider.models.length, 0)
 
   useEffect(() => {
-    document.title = 'Kern'
+    document.title = 'Mees'
   }, [])
 
   async function enterStudio(): Promise<void> {
@@ -39,7 +39,7 @@ export function Onboarding({
     setEntering(true)
     setError('')
     try {
-      const next = await window.kern?.savePreferences({ onboardingComplete: true })
+      const next = await window.mees?.savePreferences({ onboardingComplete: true })
       if (next) onSnapshot(next)
     } catch (caught) {
       setError(errorMessage(caught))
@@ -51,7 +51,7 @@ export function Onboarding({
   return (
     <div className="onboarding-page">
       <header className="app-topbar onboarding-topbar">
-        <Wordmark />
+        <Wordmark iconOnly />
         <span className="topbar-context">Local design workspace</span>
         <div className="topbar-window-space" />
       </header>
@@ -65,7 +65,7 @@ export function Onboarding({
               One living canvas.
             </h1>
             <p className="onboarding-lede">
-              Bring a paid API key from OpenAI, Claude, Gemini or DeepSeek. Kern streams a
+              Bring a paid API key from OpenAI, Claude, Gemini or DeepSeek. Mees streams a
               complete responsive design into the viewport while you refine it in conversation.
             </p>
           </div>
@@ -151,7 +151,7 @@ export function Onboarding({
                 </>
               ) : (
                 <>
-                  Enter Kern
+                  Enter Mees
                   <ArrowRight aria-hidden="true" size={15} />
                 </>
               )}
@@ -160,7 +160,7 @@ export function Onboarding({
 
           {!snapshot.settings.secureStorageAvailable ? (
             <p className="field-error connection-error">
-              Kern could not access {snapshot.settings.storageBackend}. API keys must be stored
+              Mees could not access {snapshot.settings.storageBackend}. API keys must be stored
               securely, so provider setup is disabled.
             </p>
           ) : null}

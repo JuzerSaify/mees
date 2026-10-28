@@ -9,10 +9,10 @@ describe('motion preview runtime', () => {
     const html = '<!doctype html><html><body><canvas></canvas></body></html>'
     const injected = injectMotionPreviewRuntime(html)
 
-    expect(injected).toContain('data-kern-motion-preview-runtime')
+    expect(injected).toContain('data-mees-motion-preview-runtime')
     expect(injected).toContain(MOTION_PREVIEW_CHANNEL)
-    expect(injected).toContain('KERN_MOTION')
-    expect(injected.indexOf('data-kern-motion-preview-runtime')).toBeLessThan(
+    expect(injected).toContain('MEES_MOTION')
+    expect(injected.indexOf('data-mees-motion-preview-runtime')).toBeLessThan(
       injected.indexOf('</body>')
     )
     expect(injectMotionPreviewRuntime(injected)).toBe(injected)

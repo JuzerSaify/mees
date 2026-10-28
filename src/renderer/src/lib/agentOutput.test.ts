@@ -92,11 +92,11 @@ describe('targeted element output', () => {
   it('hydrates fetched asset tokens before rendering', () => {
     expect(
       hydrateFetchedAssets(
-        '<img src="kern-asset://asset-a1"><img src="kern-asset://asset-a1">',
+        '<img src="mees-asset://asset-a1"><img src="mees-asset://asset-a1">',
         [
           {
             id: 'asset-a1',
-            token: 'kern-asset://asset-a1',
+            token: 'mees-asset://asset-a1',
             kind: 'image',
             title: 'Studio',
             pageUrl: 'https://example.com',
