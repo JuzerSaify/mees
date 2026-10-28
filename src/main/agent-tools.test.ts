@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import sharp from 'sharp'
 import {
   AGENT_TOOLS,
   describeAgentTool,
@@ -240,5 +241,117 @@ describe('agent tools', () => {
       prompt: 'Which archive year should the site document?'
     })
     expect(result.question?.options).toHaveLength(3)
+  })
+
+  it('runs artifact inspection and every image transformation tool', async () => {
+    const sourceToken = `kern-asset://asset/${'b'.repeat(64)}.png`
+    const bytes = await sharp({
+      create: {
+        width: 96,
+        height: 64,
+        channels: 4,
+        background: { r: 25, g: 86, b: 109, alpha: 1 }
+      }
+    })
+      .png()
+      .toBuffer()
+    let derivedCount = 0
+    const state = {
+      sources: [],
+      assets: [
+        {
+          id: 'source',
+          token: sourceToken,
+          kind: 'image' as const,
+          title: 'Source plate',
+          pageUrl: 'https://example.com/source',
+          sourceUrl: 'https://example.com/source.png',
+          contentType: 'image/png',
+          byteLength: bytes.byteLength,
+          dataUrl: sourceToken
+        }
+      ],
+      readAsset: async () => ({
+        bytes,
+        contentType: 'image/png'
+      }),
+      writeAsset: async (
+        value: Uint8Array,
+        contentType: string,
+        metadata: Record<string, unknown>
+      ) => {
+        derivedCount += 1
+        return {
+          id: `derived-${derivedCount}`,
+          token: `kern-asset://asset/${String(derivedCount).padStart(64, '0')}.webp`,
+          kind: 'image' as const,
+          title: String(metadata.title),
+          pageUrl: String(metadata.pageUrl ?? ''),
+          sourceUrl: String(metadata.sourceUrl ?? ''),
+          contentType,
+          byteLength: value.byteLength,
+          width: Number(metadata.width ?? 0),
+          height: Number(metadata.height ?? 0),
+          dataUrl: `kern-asset://asset/${String(derivedCount).padStart(64, '0')}.webp`
+        }
+      },
+      inspectArtifact: async () => ({
+        capturedAt: new Date().toISOString(),
+        durationMs: 12,
+        consoleErrors: [],
+        pageErrors: [],
+        networkFailures: [],
+        issues: [],
+        screenshots: [],
+        document: {
+          title: 'Mode artifact',
+          language: 'en',
+          headings: [],
+          landmarks: [],
+          controls: 0,
+          links: 0,
+          images: 0,
+          forms: 0
+        }
+      })
+    }
+
+    const inspected = await executeAgentTool(
+      {
+        id: 'inspect-1',
+        name: 'inspect_artifact',
+        arguments: {}
+      },
+      { ...state, currentDesign: '<svg></svg>' },
+      new AbortController().signal
+    )
+    expect(inspected.content).toContain('Mode artifact')
+
+    for (const call of [
+      {
+        id: 'crop-1',
+        name: 'crop_asset',
+        arguments: { source: sourceToken, aspect_ratio: '16:9' }
+      },
+      {
+        id: 'optimize-1',
+        name: 'optimize_asset',
+        arguments: { source: sourceToken, max_width: 48, quality: 70 }
+      },
+      {
+        id: 'vectorize-1',
+        name: 'vectorize_asset',
+        arguments: { source: sourceToken, title: 'Traced plate', width: 48 }
+      }
+    ]) {
+      const result = await executeAgentTool(
+        call,
+        state,
+        new AbortController().signal
+      )
+      expect(result.assets).toHaveLength(1)
+      expect(result.content).toContain('kern-asset://asset/')
+    }
+    expect(derivedCount).toBe(3)
   })
 })

@@ -76,9 +76,10 @@ npm run typecheck
 npm test
 npm run build
 npm run verify:ui
+npm run verify:tools
 ```
 
-The test suite covers all four provider adapters, native tool-call parsing, multimodal image payloads, live-search fallback, page reading, evidence scoring, content-addressed assets, assistant protocol rules, local history compaction and renderer utilities. `verify:ui` launches the built Electron app with a temporary profile, verifies geometry and zero horizontal overflow, exercises browser review, reference comparison and design memory, and saves screenshots under `.ui-check/`.
+The test suite covers all four provider adapters, native tool-call parsing, multimodal image payloads, live-search fallback, page reading, evidence scoring, content-addressed assets, assistant protocol rules, local history compaction and renderer utilities. `verify:ui` launches the built Electron app with a temporary profile, verifies geometry and zero horizontal overflow, exercises browser review, reference comparison and design memory, and saves screenshots under `.ui-check/`. `verify:tools` runs Website, Logo, Vector and Motion through both review layers, checks the expected render surface and responsive capture count, and includes deliberately broken artifacts to confirm each mode-specific failure is detected.
 
 ## Provider assets
 

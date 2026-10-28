@@ -39,6 +39,7 @@ interface MotionRuntimeResult {
   fps?: number
   signatures?: string[]
   inkRatios?: number[]
+  colorCounts?: number[]
   readable?: boolean
   play?: boolean
   pause?: boolean
@@ -78,6 +79,7 @@ const waitForTimeline=()=>{
     const sampleTimes=[0,duration/2,duration];
     const signatures=[];
     const inkRatios=[];
+    const colorCounts=[];
     for(const time of sampleTimes){
       motion.renderAt(time);
       const pixels=context.getImageData(0,0,width,height).data;
@@ -86,12 +88,14 @@ const waitForTimeline=()=>{
       let hash=2166136261;
       let inked=0;
       let sampled=0;
+      const colorBuckets=new Set();
       for(let pixel=0;pixel<totalPixels;pixel+=step){
         const offset=pixel*4;
         const red=pixels[offset]||0;
         const green=pixels[offset+1]||0;
         const blue=pixels[offset+2]||0;
         const alpha=pixels[offset+3]||0;
+        if(alpha>8)colorBuckets.add(((red>>4)<<8)|((green>>4)<<4)|(blue>>4));
         if(alpha>8&&(red<247||green<247||blue<247))inked+=1;
         sampled+=1;
         hash=Math.imul(hash^red,16777619)>>>0;
@@ -101,6 +105,7 @@ const waitForTimeline=()=>{
       }
       signatures.push(hash.toString(16).padStart(8,'0'));
       inkRatios.push(sampled?inked/sampled:0);
+      colorCounts.push(colorBuckets.size);
     }
     send({
       width,
@@ -109,6 +114,7 @@ const waitForTimeline=()=>{
       fps,
       signatures,
       inkRatios,
+      colorCounts,
       readable:true,
       play:typeof motion.play==='function',
       pause:typeof motion.pause==='function',
@@ -180,11 +186,14 @@ function runMotionRuntimeAudit(html: string): Promise<MotionRuntimeResult> {
 export function auditScript(
   token: string,
   viewport: DesignViewport,
-  width: number
+  width: number,
+  height = 1000
 ): string {
   return `<script>(()=>{"use strict";
 const token=${JSON.stringify(token)};
 const viewport=${JSON.stringify(viewport)};
+const targetWidth=${width};
+const targetHeight=${height};
 let sent=false;
 const textOf=(node)=>String(node&&node.textContent||'').replace(/\\s+/g,' ').trim().slice(0,100);
 const selectorFor=(el)=>{
@@ -240,13 +249,13 @@ const run=()=>{
     let gradientCount=0,gradientExample=null,largeGradient=false;
     const cardGroups=new Map();
     let cardExample=null;
-    const overflow=Math.max(0,doc.scrollWidth-window.innerWidth);
-    if(overflow>1)addIssue(issues,seen,'horizontal-overflow','error','Horizontal overflow','The page extends '+withUnit(overflow)+' past the '+window.innerWidth+'px viewport.',doc.body,0);
+    const overflow=Math.max(0,doc.scrollWidth-targetWidth);
+    if(overflow>1)addIssue(issues,seen,'horizontal-overflow','error','Horizontal overflow','The page extends '+withUnit(overflow)+' past the '+targetWidth+'px viewport.',doc.body,0);
     let outside=0,outsideExample=null;
     for(const el of visible){
       if(inHorizontalScroller(el))continue;
       const r=el.getBoundingClientRect();
-      if(r.right>window.innerWidth+2||r.left<-2){outside++;outsideExample=outsideExample||el;}
+      if(r.right>targetWidth+2||r.left<-2){outside++;outsideExample=outsideExample||el;}
     }
     if(outside>0&&overflow<=1)addIssue(issues,seen,'offscreen-content','error','Content sits outside the viewport',outside+' visible element'+(outside===1?' extends':'s extend')+' beyond the viewport edge.',outsideExample,1);
     let smallText=0,smallExample=null;
@@ -320,10 +329,10 @@ const run=()=>{
           indexLabelExample=indexLabelExample||el;
         }
       }
-      if(area>=window.innerWidth*window.innerHeight*0.08&&s.backgroundImage&&s.backgroundImage.includes('gradient')){
+      if(area>=targetWidth*targetHeight*0.08&&s.backgroundImage&&s.backgroundImage.includes('gradient')){
         gradientCount+=1;
         gradientExample=gradientExample||el;
-        if(area>=window.innerWidth*window.innerHeight*0.2)largeGradient=true;
+        if(area>=targetWidth*targetHeight*0.2)largeGradient=true;
       }
       if(area>=500&&s.boxShadow&&s.boxShadow!=='none'&&!['fixed','absolute','sticky'].includes(s.position)){
         staticShadowCount+=1;
@@ -369,7 +378,7 @@ const run=()=>{
         headingMode,
         directChildren.length,
         mediaCount>0?'media':'text',
-        sectionRect.width>window.innerWidth*0.8?'wide':'contained'
+        sectionRect.width>targetWidth*0.8?'wide':'contained'
       ].join('|');
       const group=sectionSignatures.get(signature)||{count:0,element:section};
       group.count+=1;
@@ -577,7 +586,7 @@ function runViewportAudit(
     }, 8000)
 
     window.addEventListener('message', onMessage)
-    iframe.srcdoc = `${html}\n${auditScript(token, viewport, width)}`
+    iframe.srcdoc = `${html}\n${auditScript(token, viewport, width, height)}`
   })
 }
 
@@ -884,7 +893,18 @@ async function auditMotionDesign(
   if (runtime?.readable) {
     const ratios = runtime.inkRatios ?? []
     const signatures = runtime.signatures ?? []
-    if (ratios.length > 0 && ratios.every((ratio) => ratio < 0.0015)) {
+    const colorCounts = runtime.colorCounts ?? []
+    if (
+      colorCounts.length > 0 &&
+      colorCounts.every((count) => count <= 1)
+    ) {
+      add(
+        'motion-blank-timeline',
+        'error',
+        'Timeline frames are blank',
+        'The opening, middle and closing samples contain only a flat background. Render a composed frame at every checkpoint.'
+      )
+    } else if (ratios.length > 0 && ratios.every((ratio) => ratio < 0.0015)) {
       add(
         'motion-blank-timeline',
         'error',

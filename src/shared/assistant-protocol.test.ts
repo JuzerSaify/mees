@@ -161,4 +161,23 @@ describe('assistant protocol', () => {
     expect(prompt).toContain('Approved design memory')
     expect(prompt).toContain('do not repeat its layout')
   })
+
+  it('keeps the optional tool loop available in every design mode', () => {
+    for (const designMode of [
+      'website',
+      'logo',
+      'vector',
+      'motion'
+    ] as const) {
+      const prompt = buildSystemPrompt({
+        currentDesign: '',
+        designMode,
+        now
+      })
+      expect(prompt).toContain('You are one continuous agent')
+      expect(prompt).toContain('Tools are optional')
+      expect(prompt).toContain('Inspection')
+      expect(prompt).toContain('ask_user')
+    }
+  })
 })

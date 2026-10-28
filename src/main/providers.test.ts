@@ -527,6 +527,48 @@ describe('agent tool turns', () => {
     })
   })
 
+  it('keeps the optional native tool contract present in every design mode', async () => {
+    for (const designMode of [
+      'website',
+      'logo',
+      'vector',
+      'motion'
+    ] as const) {
+      const fetchMock = vi.fn().mockResolvedValue(
+        sseResponse([
+          JSON.stringify({
+            type: 'response.output_text.delta',
+            delta: 'Working'
+          }),
+          JSON.stringify({
+            type: 'response.completed',
+            response: { usage: {} }
+          })
+        ])
+      )
+      vi.stubGlobal('fetch', fetchMock)
+      await runAgentTurn({
+        provider: 'openai',
+        model: 'gpt-test',
+        apiKey: 'key',
+        currentDesign: '',
+        designMode,
+        messages: [{ role: 'user', content: `Review ${designMode}` }],
+        tools,
+        signal: new AbortController().signal,
+        onDelta: () => undefined
+      })
+      expect(turnBody(fetchMock)).toMatchObject({
+        tools: [
+          {
+            type: 'function',
+            name: 'search_web'
+          }
+        ]
+      })
+    }
+  })
+
   it('sends reference images without forcing tool use in OpenAI', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       sseResponse([

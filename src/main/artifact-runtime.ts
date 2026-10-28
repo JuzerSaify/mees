@@ -67,11 +67,13 @@ async function registerRuntimeProtocol(
 
 async function measurePage(
   window: BrowserWindow,
-  viewport: DesignViewport
+  viewport: DesignViewport,
+  mode: DesignMode
 ): Promise<PageMeasurement> {
   return (await window.webContents.executeJavaScript(
     `(async()=>{
       const viewport=${JSON.stringify(viewport)};
+      const mode=${JSON.stringify(mode)};
       const issues=[];
       const seen=new Set();
       const selectorFor=(element)=>{
@@ -130,13 +132,95 @@ async function measurePage(
         }
         if(smallTargets)add('runtime-tap-target','warning','Touch target is too small',smallTargets+' control'+(smallTargets===1?' is':'s are')+' below 32px.',smallTarget);
       }
+      if(mode==='logo'||mode==='vector'){
+        const svg=document.querySelector('svg');
+        if(!svg){
+          add('runtime-svg-root','error','SVG root missing','The rendered ${mode} artifact contains no SVG document.',document.body);
+        }else{
+          const rect=svg.getBoundingClientRect();
+          if(!isVisible(svg)||rect.width<24||rect.height<24)add('runtime-svg-visibility','error','SVG is not visible','The SVG exists but has no visible rendering area.',svg);
+          if(!svg.getAttribute('viewBox'))add('runtime-svg-viewbox','warning','SVG viewBox missing','The rendered SVG does not define a scalable viewBox.',svg);
+          if(!svg.querySelector(':scope > title'))add('runtime-svg-title','warning','SVG title missing','Add an accessible title inside the SVG root.',svg);
+          if(!svg.querySelector(':scope > desc'))add('runtime-svg-description','warning','SVG description missing','Add a short description inside the SVG root.',svg);
+          const raster=svg.querySelectorAll('image,foreignObject');
+          if(raster.length)add('runtime-svg-raster','error','Raster content inside vector artifact',raster.length+' raster or foreignObject element'+(raster.length===1?' is':'s are')+' embedded in the SVG.',raster[0]);
+        }
+      }
+      if(mode==='motion'){
+        const canvas=document.querySelector('canvas');
+        const motion=window.KERN_MOTION;
+        if(!canvas){
+          add('runtime-motion-canvas','error','Motion canvas missing','The rendered motion artifact contains no canvas.',document.body);
+        }else if(!isVisible(canvas)||canvas.width<32||canvas.height<18){
+          add('runtime-motion-stage','error','Motion stage is not visible','The canvas needs a measurable rendered stage.',canvas);
+        }
+        if(!motion||typeof motion!=='object'){
+          add('runtime-motion-api','error','Motion API missing','The page does not expose window.KERN_MOTION.',document.body);
+        }else{
+          for(const method of ['renderAt','play','pause','seek']){
+            if(typeof motion[method]!=='function')add('runtime-motion-'+method,'error','Motion '+method+' control missing','window.KERN_MOTION.'+method+' must be callable.',canvas);
+          }
+          const media=document.querySelectorAll('audio,video');
+          if(media.length)add('runtime-motion-media','error','Embedded audio or video found',media.length+' media element'+(media.length===1?' exists':'s exist')+' inside the deterministic motion artifact.',media[0]);
+          if(canvas&&typeof motion.renderAt==='function'){
+            try{
+              const width=Math.max(1,Math.round(canvas.width||motion.width||1280));
+              const height=Math.max(1,Math.round(canvas.height||motion.height||720));
+              const duration=Math.max(0.1,Number(motion.duration)||6);
+              const context=canvas.getContext('2d',{willReadFrequently:true});
+              if(!context){
+                add('runtime-motion-unreadable','warning','Motion frames are unreadable','The canvas does not expose a readable 2D frame buffer.',canvas);
+              }else{
+                const samples=[];
+                const colorCounts=[];
+                let minInk=1;
+                for(const time of [0,duration/2,duration]){
+                  motion.renderAt(time);
+                  const pixels=context.getImageData(0,0,width,height).data;
+                  const totalPixels=width*height;
+                  const step=Math.max(1,Math.floor(totalPixels/16000));
+                  let hash=2166136261;
+                  let inked=0;
+                  let sampled=0;
+                  const colorBuckets=new Set();
+                  for(let pixel=0;pixel<totalPixels;pixel+=step){
+                    const offset=pixel*4;
+                    const red=pixels[offset]||0;
+                    const green=pixels[offset+1]||0;
+                    const blue=pixels[offset+2]||0;
+                    const alpha=pixels[offset+3]||0;
+                    if(alpha>8)colorBuckets.add(((red>>4)<<8)|((green>>4)<<4)|(blue>>4));
+                    if(alpha>8&&(red<247||green<247||blue<247))inked+=1;
+                    sampled+=1;
+                    hash=Math.imul(hash^red,16777619)>>>0;
+                    hash=Math.imul(hash^green,16777619)>>>0;
+                    hash=Math.imul(hash^blue,16777619)>>>0;
+                    hash=Math.imul(hash^alpha,16777619)>>>0;
+                  }
+                  const ratio=sampled?inked/sampled:0;
+                  minInk=Math.min(minInk,ratio);
+                  colorCounts.push(colorBuckets.size);
+                  samples.push(hash.toString(16));
+                }
+                if(colorCounts.every((count)=>count<=1))add('runtime-motion-blank','error','Motion canvas is blank','The opening, middle and ending frames contain only a flat background.',canvas);
+                else if(minInk<0.0015)add('runtime-motion-blank','error','Motion canvas is blank','At least one opening, middle or ending frame contains no visible canvas content.',canvas);
+                if(new Set(samples).size===1)add('runtime-motion-static','warning','Motion canvas does not change','The opening, middle and ending frames are identical.',canvas);
+                motion.renderAt(0);
+              }
+            }catch(error){
+              add('runtime-motion-sample','error','Motion timeline could not be sampled',String(error&&error.message||error).slice(0,240),canvas);
+            }
+          }
+        }
+      }
+      const documentTitle=String(document.title||document.querySelector('svg > title')?.textContent||'').replace(/\\s+/g,' ').trim().slice(0,180);
       const headings=Array.from(document.querySelectorAll('h1,h2,h3')).filter(isVisible).map((node)=>String(node.textContent||'').replace(/\\s+/g,' ').trim().slice(0,140)).filter(Boolean).slice(0,12);
       const landmarks=Array.from(document.querySelectorAll('main,nav,header,footer,aside,section[aria-label],[role="main"],[role="navigation"]')).filter(isVisible).map((node)=>node.getAttribute('aria-label')||node.getAttribute('role')||node.tagName.toLowerCase()).slice(0,16);
       return {
         issues,
         timing:Math.round(performance.now()-started),
         document:{
-          title:String(document.title||'').slice(0,180),
+          title:documentTitle,
           language:String(document.documentElement.lang||''),
           headings,
           landmarks,
@@ -199,6 +283,7 @@ async function captureViewport(
   ): void => {
     if (level < 2) return
     if (/Electron Security Warning/i.test(message)) return
+    if (/willReadFrequently/i.test(message)) return
     consoleErrors.push(
       `${message.slice(0, 360)}${
         sourceId ? ` (${sourceId.slice(0, 160)}:${line})` : ''
@@ -224,7 +309,7 @@ async function captureViewport(
       `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
     )
     await delay(mode === 'motion' ? 900 : 480)
-    const measured = await measurePage(window, viewport)
+    const measured = await measurePage(window, viewport, mode)
     const image = await window.webContents.capturePage()
     const stored = await assets.saveBytes(
       image.toPNG(),

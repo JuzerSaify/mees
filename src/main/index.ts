@@ -1037,6 +1037,7 @@ function registerIpc(): void {
         assets: [] as FetchedVisualAsset[],
         evidence: [] as EvidenceItem[],
         currentDesign: inputRequest.currentDesign,
+        designMode: inputRequest.designMode,
         referenceAssets,
         readAsset: async (token: string) => {
           const fileName = assetFileNameFromUrl(token)

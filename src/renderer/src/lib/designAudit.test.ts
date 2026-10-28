@@ -49,6 +49,14 @@ describe('design audit grouping', () => {
     }
   })
 
+  it('measures horizontal layout against the configured iframe viewport', () => {
+    const script = auditScript('mobile-token', 'mobile', 390, 844)
+    expect(script).toContain('const targetWidth=390')
+    expect(script).toContain('const targetHeight=844')
+    expect(script).toContain("past the '+targetWidth+'px viewport")
+    expect(script).not.toContain('window.innerWidth')
+  })
+
   it('groups the same finding across viewports while preserving coverage', () => {
     const groups = groupDesignIssues(duplicateLanguageIssue)
     expect(groups).toHaveLength(2)

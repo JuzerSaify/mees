@@ -2,6 +2,7 @@ import type {
   AgentActivityKind,
   AgentQuestion,
   ArtifactRuntimeReport,
+  DesignMode,
   EvidenceItem,
   FetchedVisualAsset,
   ResearchSource
@@ -34,6 +35,7 @@ export interface AgentToolState {
   assets: FetchedVisualAsset[]
   evidence?: EvidenceItem[]
   currentDesign?: string
+  designMode?: DesignMode
   referenceAssets?: Record<string, string>
   readAsset?: (token: string) => Promise<ImageAssetInput | null>
   writeAsset?: (
@@ -411,7 +413,7 @@ export function describeAgentTool(call: AgentToolCall): AgentToolDescription {
       kind: 'inspect',
       label: 'Inspecting the rendered artifact',
       detail:
-        'Checking DOM structure, accessibility, console errors and all viewport widths'
+        'Checking the mode-specific render surface, accessibility, console and runtime state'
     }
   }
   if (call.name === 'evaluate_evidence') {
@@ -682,8 +684,14 @@ export async function executeAgentTool(
       ...description,
       content: JSON.stringify({
         tool: call.name,
+        mode: state.designMode ?? 'website',
         duration_ms: report.durationMs,
         document: report.document,
+        screenshots: report.screenshots.map((screenshot) => ({
+          viewport: screenshot.viewport,
+          width: screenshot.width,
+          height: screenshot.height
+        })),
         console_errors: report.consoleErrors,
         page_errors: report.pageErrors,
         network_failures: report.networkFailures,
