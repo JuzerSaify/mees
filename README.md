@@ -48,7 +48,7 @@ App data is stored in Electron's per-user data directory. You can open it from *
 7. The canvas updates while the document arrives and a local three-width review measures the result.
 8. Refine the design in the same conversation, switch providers or models, then open or export the HTML.
 
-The agent timeline shows only tool or writing activity that actually happened. There is no fixed research pipeline, mandatory planner pass or hidden visual-search switch. Each completed response reports tool rounds, query count, pages read, evidence items, tool time, and the percentage change in evidence coverage from the previous run in that conversation. That percentage is an operational comparison, not a universal measure of model intelligence.
+The agent timeline shows only tool or writing activity that actually happened. Steps remain expanded while the agent is working, then fold into a clickable completion summary. Opening it restores the full trail, source favicons, query count, pages read, evidence items, tool time, and the percentage change in evidence coverage from the previous run in that conversation. That percentage is an operational comparison, not a universal measure of model intelligence.
 
 Reference images are treated as visual evidence, not instructions. Models without image input keep the composer in a text-only state and explain why before a request can be sent.
 

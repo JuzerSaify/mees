@@ -19,7 +19,7 @@ import {
   WandSparkles,
   X
 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type {
@@ -28,13 +28,16 @@ import type {
   AgentActivity,
   AgentQuestion,
   AgentReferenceImage,
+  AgentToolComparison,
+  AgentToolMetrics,
   ChatMessage,
   DesignMode,
   DesignSelection,
+  MessageStatus,
   ResearchSource
 } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
-import { formatBytes } from '../lib/format'
+import { formatBytes, formatDuration } from '../lib/format'
 import {
   MAX_REFERENCE_IMAGES,
   isSupportedReferenceImage,
@@ -324,6 +327,199 @@ function AgentWorkingStatus({
   )
 }
 
+function ToolMetricsSummary({
+  className = '',
+  comparison,
+  metrics
+}: {
+  className?: string
+  comparison?: AgentToolComparison
+  metrics?: AgentToolMetrics
+}): React.JSX.Element | null {
+  if (
+    !metrics ||
+    ((metrics.toolCalls ?? 0) <= 0 && metrics.rounds <= 0)
+  ) {
+    return null
+  }
+  return (
+    <div
+      aria-label="Tool harness results"
+      className={`harness-summary ${className}`.trim()}
+    >
+      <span className="harness-summary-label">Agent tools</span>
+      <span>
+        {metrics.rounds} {metrics.rounds === 1 ? 'round' : 'rounds'}
+      </span>
+      <span>
+        {metrics.queries} {metrics.queries === 1 ? 'query' : 'queries'}
+      </span>
+      <span>
+        {metrics.evidenceItems}{' '}
+        {metrics.evidenceItems === 1 ? 'item' : 'items'}
+      </span>
+      {metrics.pagesRead ? (
+        <span>
+          {metrics.pagesRead} {metrics.pagesRead === 1 ? 'page' : 'pages'} read
+        </span>
+      ) : null}
+      {metrics.fetchedAssets ? (
+        <span>
+          {metrics.fetchedAssets}{' '}
+          {metrics.fetchedAssets === 1 ? 'asset' : 'assets'} fetched
+        </span>
+      ) : null}
+      <span>{(metrics.durationMs / 1000).toFixed(1)}s tools</span>
+      {metrics.parallelBatches > 0 ? (
+        <span>{metrics.parallelBatches} parallel</span>
+      ) : null}
+      {typeof comparison?.evidencePercent === 'number' ? (
+        <span
+          className={`harness-delta ${
+            comparison.evidencePercent < 0
+              ? 'is-down'
+              : comparison.evidencePercent > 0
+                ? 'is-up'
+                : 'is-neutral'
+          }`}
+        >
+          {comparison.evidencePercent > 0 ? '+' : ''}
+          {comparison.evidencePercent}% evidence vs previous
+        </span>
+      ) : (
+        <span className="harness-delta is-baseline">Baseline run</span>
+      )}
+    </div>
+  )
+}
+
+function AgentWorkTimeline({
+  activities,
+  active,
+  comparison,
+  metrics,
+  run,
+  status
+}: {
+  activities: AgentActivity[]
+  active: boolean
+  comparison?: AgentToolComparison
+  metrics?: AgentToolMetrics
+  run: AgentRunView | null
+  status: MessageStatus
+}): React.JSX.Element | null {
+  const visibleActivities = activities.filter(
+    (activity) => !['visuals', 'plan'].includes(activity.kind as string)
+  )
+  const panelId = useId()
+  const [expanded, setExpanded] = useState(active)
+
+  useEffect(() => {
+    setExpanded(active)
+  }, [active])
+
+  if (visibleActivities.length === 0) return null
+
+  if (active) {
+    const activeIndex = visibleActivities.findIndex(
+      (activity) => activity.status === 'running'
+    )
+    return (
+      <section className="agent-work is-live" aria-label="Agent working steps">
+        <div className="agent-work-live-head">
+          <span>
+            <LoaderCircle aria-hidden="true" className="spin" size={12} />
+            Agent working
+          </span>
+          <span>
+            {activeIndex >= 0
+              ? `${activeIndex + 1} of ${visibleActivities.length} steps`
+              : `${visibleActivities.length} ${
+                  visibleActivities.length === 1 ? 'step' : 'steps'
+                }`}
+          </span>
+        </div>
+        <div className="activity-timeline" aria-label="Agent activity">
+          {visibleActivities.map((activity) => (
+            <ActivityItem activity={activity} key={activity.id} run={run} />
+          ))}
+        </div>
+      </section>
+    )
+  }
+
+  const failed = visibleActivities.some(
+    (activity) => activity.status === 'error'
+  )
+  const cancelled =
+    status === 'cancelled' ||
+    visibleActivities.some((activity) => activity.status === 'cancelled')
+  const title = failed
+    ? 'Agent work stopped'
+    : cancelled
+      ? 'Agent work cancelled'
+      : 'Agent work'
+  const detail = [
+    `${visibleActivities.length} ${
+      visibleActivities.length === 1 ? 'step' : 'steps'
+    }`,
+    metrics?.sources
+      ? `${metrics.sources} ${metrics.sources === 1 ? 'source' : 'sources'}`
+      : null,
+    metrics?.durationMs
+      ? formatDuration(metrics.durationMs)
+      : null
+  ]
+    .filter(Boolean)
+    .join(' / ')
+
+  return (
+    <section className={`agent-work ${expanded ? 'is-expanded' : ''}`}>
+      <button
+        aria-label={`${title}. ${detail}. ${
+          expanded ? 'Hide' : 'Show'
+        } work details`}
+        aria-controls={panelId}
+        aria-expanded={expanded}
+        className="agent-work-summary"
+        onClick={() => setExpanded((value) => !value)}
+        type="button"
+      >
+        <span className={`agent-work-check ${failed ? 'is-error' : ''}`}>
+          {failed ? (
+            <AlertCircle aria-hidden="true" size={13} />
+          ) : (
+            <Check aria-hidden="true" size={13} />
+          )}
+        </span>
+        <span className="agent-work-summary-copy">
+          <strong>{title}</strong>
+          <small>{detail}</small>
+        </span>
+        <ChevronDown
+          aria-hidden="true"
+          className={expanded ? 'is-open' : ''}
+          size={14}
+        />
+      </button>
+      {expanded ? (
+        <div className="agent-work-panel" id={panelId}>
+          <div className="activity-timeline" aria-label="Agent activity">
+            {visibleActivities.map((activity) => (
+              <ActivityItem activity={activity} key={activity.id} run={run} />
+            ))}
+          </div>
+          <ToolMetricsSummary
+            className="agent-work-metrics"
+            comparison={comparison}
+            metrics={metrics}
+          />
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
 function MessageBody({
   hideClarificationContent,
   message,
@@ -374,11 +570,14 @@ function MessageBody({
         {message.model ? <span className="message-model">{message.model}</span> : null}
       </div>
       {message.activities?.length ? (
-        <div className="activity-timeline" aria-label="Agent activity">
-          {message.activities.map((activity) => (
-            <ActivityItem activity={activity} key={activity.id} run={run} />
-          ))}
-        </div>
+        <AgentWorkTimeline
+          activities={message.activities}
+          active={isActiveRun}
+          comparison={message.toolComparison}
+          metrics={message.toolMetrics}
+          run={run}
+          status={message.status}
+        />
       ) : null}
       {message.content && !hideClarificationContent ? (
         <div className="markdown-body">
@@ -403,63 +602,11 @@ function MessageBody({
         </div>
       ) : null}
 
-      {message.toolMetrics &&
-      ((message.toolMetrics.toolCalls ?? 0) > 0 ||
-        message.toolMetrics.rounds > 0) ? (
-        <div
-          aria-label="Tool harness results"
-          className="harness-summary"
-        >
-          <span className="harness-summary-label">Agent tools</span>
-          <span>
-            {message.toolMetrics.rounds}{' '}
-            {message.toolMetrics.rounds === 1 ? 'round' : 'rounds'}
-          </span>
-          <span>
-            {message.toolMetrics.queries}{' '}
-            {message.toolMetrics.queries === 1 ? 'query' : 'queries'}
-          </span>
-          <span>
-            {message.toolMetrics.evidenceItems}{' '}
-            {message.toolMetrics.evidenceItems === 1 ? 'item' : 'items'}
-          </span>
-          {message.toolMetrics.pagesRead ? (
-            <span>
-              {message.toolMetrics.pagesRead}{' '}
-              {message.toolMetrics.pagesRead === 1 ? 'page' : 'pages'} read
-            </span>
-          ) : null}
-          {message.toolMetrics.fetchedAssets ? (
-            <span>
-              {message.toolMetrics.fetchedAssets}{' '}
-              {message.toolMetrics.fetchedAssets === 1 ? 'asset' : 'assets'} fetched
-            </span>
-          ) : null}
-          <span>
-            {(message.toolMetrics.durationMs / 1000).toFixed(1)}s tools
-          </span>
-          {message.toolMetrics.parallelBatches > 0 ? (
-            <span>
-              {message.toolMetrics.parallelBatches} parallel
-            </span>
-          ) : null}
-          {typeof message.toolComparison?.evidencePercent === 'number' ? (
-            <span
-              className={`harness-delta ${
-                message.toolComparison.evidencePercent < 0
-                  ? 'is-down'
-                  : message.toolComparison.evidencePercent > 0
-                    ? 'is-up'
-                    : 'is-neutral'
-              }`}
-            >
-              {message.toolComparison.evidencePercent > 0 ? '+' : ''}
-              {message.toolComparison.evidencePercent}% evidence vs previous
-            </span>
-          ) : (
-            <span className="harness-delta is-baseline">Baseline run</span>
-          )}
-        </div>
+      {!message.activities?.length ? (
+        <ToolMetricsSummary
+          comparison={message.toolComparison}
+          metrics={message.toolMetrics}
+        />
       ) : null}
 
       {isActiveRun && run && !hasLiveActivity ? (
