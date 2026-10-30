@@ -29,9 +29,9 @@
   --ease-in-out: cubic-bezier(0.76, 0, 0.24, 1);
   --step-small: 0.875rem;
   --step-body: clamp(1.0625rem, 0.98rem + 0.24vw, 1.1875rem);
-  --step-lead: clamp(1.375rem, 1.16rem + 0.95vw, 1.875rem);
-  --step-heading: clamp(2.5rem, 1.65rem + 3.8vw, 5.25rem);
-  --step-display: clamp(4rem, 2.1rem + 7.6vw, 8.75rem);
+  --step-lead: clamp(1.25rem, 1.12rem + 0.48vw, 1.5rem);
+  --step-heading: clamp(2.5rem, 1.8rem + 2.8vw, 4.5rem);
+  --step-display: clamp(4rem, 2.5rem + 4.2vw, 5.5rem);
   color-scheme: light;
   font-family: "Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif;
   font-synthesis: none;
@@ -334,12 +334,12 @@ a:focus-visible {
 }
 
 .hero h1 {
-  max-width: 12ch;
+  max-width: 11ch;
   margin-left: -0.045em;
   font-size: var(--step-display);
   font-weight: 520;
-  letter-spacing: -0.052em;
-  line-height: 0.88;
+  letter-spacing: -0.045em;
+  line-height: 0.92;
 }
 
 .hero-detail {
@@ -349,10 +349,10 @@ a:focus-visible {
 }
 
 .hero-detail > p:first-child {
-  max-width: 35ch;
+  max-width: 37ch;
   font-size: var(--step-lead);
-  line-height: 1.32;
-  letter-spacing: -0.018em;
+  line-height: 1.45;
+  letter-spacing: 0;
 }
 
 .hero-actions {
@@ -1536,9 +1536,9 @@ a:focus-visible {
 
   .js .hero-product {
     opacity: 0;
-    transform: translateY(26px) scale(0.996);
+    transform: translateY(12px);
     transform-origin: top center;
-    animation: product-arrive 1000ms var(--ease-expo) 340ms both;
+    animation: product-arrive 560ms var(--ease-expo) 260ms both;
   }
 
   .js.reveal-enabled [data-reveal] {
@@ -3612,38 +3612,19 @@ a:focus-visible {
   isolation: isolate;
 }
 
-.hero-glow {
-  position: absolute;
-  z-index: -1;
-  right: 4%;
-  bottom: -10%;
-  left: 4%;
-  height: 74%;
-  pointer-events: none;
-  background: #ff9d6c;
-  opacity: 0.27;
-  filter: blur(104px) saturate(1.08);
-  transform: translateZ(0);
-  transition: opacity 600ms ease;
-}
-
-.hero-product:hover .hero-glow {
-  opacity: 0.34;
-}
-
 .app-window {
   position: relative;
   overflow: hidden;
   background: #efebe3;
   border: 1px solid #dcd5ca;
-  border-radius: 8px;
+  border-radius: 12px;
   box-shadow: /* taste-skill-ignore */
     0 1px 0 rgb(255 255 255 / 72%) inset,
-    0 4px 8px rgb(57 40 22 / 4%);
+    0 4px 12px rgb(31 28 23 / 5%);
 }
 
 .app-layout {
-  height: clamp(540px, 48vw, 690px);
+  height: clamp(520px, 44vw, 640px);
   display: grid;
   grid-template-columns: 52px 300px minmax(0, 1fr);
 }
@@ -3690,14 +3671,45 @@ a:focus-visible {
 .app-agent-head strong {
   color: #21190f;
   font-size: 0.95rem;
-  font-weight: 620;
+  font-weight: 600;
 }
 
-.agent-empty-copy {
-  max-width: 25ch;
+.agent-result {
+  display: grid;
+  gap: 0.75rem;
   margin-block: auto;
+  max-width: 27ch;
+}
+
+.agent-result-state {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 0.45rem;
+  color: #62594f;
+  font-size: 0.72rem;
+  line-height: 1.2;
+}
+
+.agent-result-state i {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: #4f7d63;
+}
+
+.agent-result strong {
+  color: #21190f;
+  font-size: 1.08rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.24;
+}
+
+.agent-result p {
   color: #5e564d;
-  font-size: 0.9rem;
+  font-size: 0.86rem;
   line-height: 1.46;
 }
 
@@ -3709,7 +3721,7 @@ a:focus-visible {
 }
 
 .static-placeholder {
-  min-height: 64px;
+  min-height: 56px;
   display: block;
   color: #6a6259;
   font-size: 0.78rem;
@@ -3721,7 +3733,7 @@ a:focus-visible {
   align-items: center;
   gap: 0.55rem;
   color: #635b52;
-  font-size: 0.68rem;
+  font-size: 0.72rem;
 }
 
 .static-model {
@@ -3729,7 +3741,7 @@ a:focus-visible {
   align-items: center;
   gap: 0.35rem;
   color: #21190f;
-  font-weight: 570;
+  font-weight: 600;
 }
 
 .static-model img {
@@ -3815,7 +3827,7 @@ a:focus-visible {
 .static-devices em {
   margin-left: 0.4rem;
   color: #776f65;
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   font-style: normal;
   font-variant-numeric: tabular-nums;
 }
@@ -3823,46 +3835,23 @@ a:focus-visible {
 .static-actions {
   gap: clamp(0.65rem, 1.4vw, 1.15rem);
   color: #6b635a;
-  font-size: 0.68rem;
+  font-size: 0.72rem;
 }
 
-.empty-canvas {
+.canvas-preview {
+  position: relative;
   min-height: 0;
   flex: 1;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  padding: 2rem;
-  text-align: center;
-  background: #fbf9f5;
+  overflow: hidden;
+  background: #985762;
 }
 
-.empty-canvas-icon {
-  width: 44px;
-  height: 44px;
-  fill: none;
-  stroke: #767067;
-  stroke-width: 1.25;
-}
-
-.empty-canvas h3 {
-  margin-top: 1rem;
-  color: #21190f;
-  font-size: clamp(1.75rem, 3vw, 2.6rem);
-  font-weight: 520;
-  letter-spacing: -0.04em;
-}
-
-.empty-canvas p {
-  margin-top: 0.45rem;
-  color: #635b52;
-  font-size: 0.92rem;
-}
-
-.empty-canvas small {
-  margin-top: 0.55rem;
-  color: #756d63;
-  font-size: 0.75rem;
+.canvas-preview img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  object-position: center 24%;
 }
 
 @media (max-width: 1100px) {
@@ -3899,14 +3888,6 @@ a:focus-visible {
     margin-top: 0.25rem;
   }
 
-  .hero-glow {
-    right: 2%;
-    left: 2%;
-    height: 52%;
-    filter: blur(64px);
-    opacity: 0.2;
-  }
-
   .app-layout {
     grid-template-columns: 1fr;
   }
@@ -3917,20 +3898,20 @@ a:focus-visible {
 
   .app-canvas {
     order: 1;
-    min-height: 390px;
+    min-height: 320px;
     margin: 6px;
   }
 
   .app-agent {
     order: 2;
-    min-height: 300px;
+    min-height: 260px;
     padding-inline: 0.8rem;
     border-top: 1px solid #d9d4ca;
     border-right: 0;
   }
 
-  .agent-empty-copy {
-    margin-block: 2rem;
+  .agent-result {
+    margin-block: 1.5rem;
   }
 
   .static-toolbar {
@@ -3946,16 +3927,21 @@ a:focus-visible {
     display: none;
   }
 
-  .empty-canvas {
-    padding: 1.5rem;
+  .canvas-preview img {
+    object-position: center 22%;
+  }
+}
+
+@media (max-width: 380px) {
+  .github-stars {
+    display: none;
   }
 
-  .empty-canvas h3 {
-    font-size: 1.7rem;
+  .header-tools {
+    gap: 0.5rem;
   }
 
-  .empty-canvas-icon {
-    width: 38px;
-    height: 38px;
+  .header-download {
+    padding-inline: 0.75rem;
   }
 }

@@ -14,6 +14,7 @@ const contentTypes = {
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
   '.txt': 'text/plain; charset=utf-8',
+  '.webp': 'image/webp',
   '.webmanifest': 'application/manifest+json',
   '.woff2': 'font/woff2'
 }
@@ -113,10 +114,15 @@ try {
 
   const appWindow = page.locator('.app-window')
   assert.equal(await appWindow.locator('button, input, textarea, a[href]').count(), 0)
-  assert.match(await appWindow.innerText(), /Untitled design/)
-  assert.match(await appWindow.innerText(), /No website yet/)
+  assert.match(await appWindow.innerText(), /Senti - Lead intelligence/)
+  assert.match(await appWindow.innerText(), /Website ready/)
   assert.match(await appWindow.innerText(), /Opus 5\.5/)
-  assert.equal(await page.locator('.app-canvas img').count(), 0)
+  assert.equal(await page.locator('.app-canvas img').count(), 1)
+  assert.ok(
+    await page
+      .locator('.canvas-preview img')
+      .evaluate((image) => image.complete && image.naturalWidth > 0)
+  )
 
   const stagePosition = await appWindow.evaluate((element) =>
     Math.round(element.getBoundingClientRect().top)
@@ -147,6 +153,46 @@ try {
   await mobile.locator('.app-window').screenshot({
     path: join(screenshotDirectory, 'mobile-static-app.png')
   })
+  const mobilePreviewWidth = await mobile
+    .locator('.app-canvas')
+    .evaluate((element) => Math.round(element.getBoundingClientRect().width))
+  assert.ok(mobilePreviewWidth >= 320)
+
+  const tablet = await browser.newPage({ viewport: { width: 768, height: 900 } })
+  await tablet.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle' })
+  const tabletState = await tablet.evaluate(() => ({
+    overflow: document.documentElement.scrollWidth - window.innerWidth,
+    canvasWidth: Math.round(
+      document.querySelector('.app-canvas').getBoundingClientRect().width
+    ),
+    imageLoaded:
+      document.querySelector('.canvas-preview img')?.complete === true &&
+      document.querySelector('.canvas-preview img')?.naturalWidth > 0
+  }))
+  assert.equal(tabletState.overflow, 0)
+  assert.ok(tabletState.canvasWidth >= 420)
+  assert.equal(tabletState.imageLoaded, true)
+
+  const narrow = await browser.newPage({ viewport: { width: 320, height: 900 } })
+  await narrow.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle' })
+  const narrowState = await narrow.evaluate(() => ({
+    overflow: document.documentElement.scrollWidth - window.innerWidth,
+    githubMetricVisible:
+      getComputedStyle(document.querySelector('.github-stars')).display !== 'none',
+    canvasWidth: Math.round(
+      document.querySelector('.app-canvas').getBoundingClientRect().width
+    ),
+    imageLoaded:
+      document.querySelector('.canvas-preview img')?.complete === true &&
+      document.querySelector('.canvas-preview img')?.naturalWidth > 0
+  }))
+  assert.equal(narrowState.overflow, 0)
+  assert.equal(narrowState.githubMetricVisible, false)
+  assert.ok(narrowState.canvasWidth >= 260)
+  assert.equal(narrowState.imageLoaded, true)
+  await narrow.locator('.app-window').screenshot({
+    path: join(screenshotDirectory, 'narrow-static-app.png')
+  })
 
   const reduced = await browser.newPage({ viewport: { width: 1440, height: 900 } })
   await reduced.emulateMedia({ reducedMotion: 'reduce' })
@@ -172,12 +218,15 @@ try {
         status: 'pass',
         screenshotAssets: 0,
         appWindowControls: 0,
-        appCanvasImages: 0,
+        appCanvasImages: 1,
         providerTicker: 'OpenAI / Claude / Gemini / DeepSeek',
         githubStarsRendered: 1,
         downloadsRendered: 2,
         appWindowTop: stagePosition,
         mobileOverflow: overflow,
+        mobilePreviewWidth,
+        tabletState,
+        narrowState,
         reducedMotionFallback: reducedState,
         screenshots: screenshotDirectory
       },
