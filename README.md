@@ -36,15 +36,7 @@ Installed releases check the public GitHub release feed for stable updates. Sett
 
 ## Product website
 
-The product website is live at [mees-design.vercel.app](https://mees-design.vercel.app/). Its source lives in `mees-product-site/`. The hero workspace is rendered directly in HTML and CSS, and its canvas shows a local generated-site preview rather than a screenshot of the Mees app. Product actions remain real links, while controls that belong only to the desktop app are shown as static chrome.
-
-```powershell
-npm run site:og
-npm run site:verify
-npx vercel deploy mees-product-site --prod
-```
-
-The site ships with a content security policy, strict transport security, frame denial, a restricted permissions policy and cache headers for static assets.
+The product website is live at (https://mees-design.vercel.app/).
 
 ## Security
 
