@@ -475,6 +475,25 @@ export interface ExportResult {
   filePath?: string
 }
 
+export type AppUpdateStatus =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'not-available'
+  | 'downloading'
+  | 'downloaded'
+  | 'error'
+  | 'unsupported'
+
+export interface AppUpdateState {
+  currentVersion: string
+  status: AppUpdateStatus
+  availableVersion?: string
+  percent?: number
+  message?: string
+  checkedAt?: string
+}
+
 export interface MeesApi {
   getState: () => Promise<AppSnapshot>
   connectProvider: (provider: ProviderId, apiKey: string) => Promise<AppSnapshot>
@@ -502,6 +521,11 @@ export interface MeesApi {
   openPreview: (html: string, title: string) => Promise<void>
   openDataFolder: () => Promise<void>
   openExternal: (url: string) => Promise<void>
+  getUpdateState: () => Promise<AppUpdateState>
+  checkForUpdates: () => Promise<AppUpdateState>
+  downloadUpdate: () => Promise<AppUpdateState>
+  installUpdate: () => Promise<void>
+  onUpdateEvent: (listener: (state: AppUpdateState) => void) => () => void
 }
 
 export const IPC_CHANNELS = {
@@ -523,5 +547,10 @@ export const IPC_CHANNELS = {
   exportMotion: 'mees:export-motion',
   openPreview: 'mees:open-preview',
   openDataFolder: 'mees:open-data-folder',
-  openExternal: 'mees:open-external'
+  openExternal: 'mees:open-external',
+  getUpdateState: 'mees:get-update-state',
+  checkForUpdates: 'mees:check-for-updates',
+  downloadUpdate: 'mees:download-update',
+  installUpdate: 'mees:install-update',
+  updateEvent: 'mees:update-event'
 } as const

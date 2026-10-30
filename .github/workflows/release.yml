@@ -1,0 +1,159 @@
+name: Release Windows app
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Verify and publish
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Verify package version matches tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ("v$version" -ne $env:GITHUB_REF_NAME) {
+            throw "package.json is $version, but the release tag is $env:GITHUB_REF_NAME."
+          }
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build application
+        run: npm run build
+
+      - name: Generate application icon
+        run: npm run icon
+
+      - name: Build unpacked application
+        run: npx electron-builder --win --dir --publish never
+
+      - name: Launch packaged application
+        run: node scripts/verify-packaged-app.mjs "release/win-unpacked/Mees.exe"
+
+      - name: Verify native image runtime is unpacked
+        shell: pwsh
+        run: |
+          $nativeModule = Get-ChildItem "release/win-unpacked/resources/app.asar.unpacked/node_modules/@img" -Recurse -Filter "sharp-win32-x64*.node"
+          if (-not $nativeModule) {
+            throw "The packaged app is missing its Windows sharp native module."
+          }
+          Write-Output $nativeModule.FullName
+
+      - name: Build Windows installer
+        run: npx electron-builder --win --publish never
+
+      - name: Verify release files
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $required = @(
+            "release/Mees-Setup-$version.exe",
+            "release/Mees-Setup-$version.exe.blockmap",
+            "release/latest.yml"
+          )
+          foreach ($path in $required) {
+            if (-not (Test-Path -LiteralPath $path)) {
+              throw "Missing release asset: $path"
+            }
+          }
+          $manifest = Get-Content "release/latest.yml" -Raw
+          if ($manifest -notmatch "Mees-Setup-$version.exe") {
+            throw "latest.yml does not point to the expected installer."
+          }
+          if ($manifest -notmatch "version: $version") {
+            throw "latest.yml does not contain the expected version."
+          }
+
+      - name: Generate SHA-256 checksums
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $files = @(
+            "release/Mees-Setup-$version.exe",
+            "release/Mees-Setup-$version.exe.blockmap",
+            "release/latest.yml"
+          )
+          $lines = foreach ($path in $files) {
+            $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $(Split-Path -Leaf $path)"
+          }
+          Set-Content -LiteralPath "release/SHA256SUMS.txt" -Value $lines -Encoding ascii
+
+      - name: Publish stable GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tag = $env:GITHUB_REF_NAME
+          $assets = @(
+            "release/Mees-Setup-$version.exe",
+            "release/Mees-Setup-$version.exe.blockmap",
+            "release/latest.yml",
+            "release/SHA256SUMS.txt"
+          )
+
+          $previousPreference = $ErrorActionPreference
+          $ErrorActionPreference = "Continue"
+          gh release view $tag *> $null
+          $releaseExists = $LASTEXITCODE -eq 0
+          $ErrorActionPreference = $previousPreference
+
+          if ($releaseExists) {
+            gh release upload $tag $assets --clobber
+            if ($LASTEXITCODE -ne 0) { throw "Could not upload release assets." }
+            gh release edit $tag --title "Mees v$version" --notes-file RELEASE_NOTES.md --draft=false --prerelease=false --latest
+          } else {
+            gh release create $tag $assets --verify-tag --title "Mees v$version" --notes-file RELEASE_NOTES.md --latest
+          }
+          if ($LASTEXITCODE -ne 0) { throw "Could not publish the GitHub release." }
+
+          $release = gh release view $tag --json isDraft,isPrerelease,assets,url | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw "Could not read the published release." }
+          if ($release.isDraft -or $release.isPrerelease) {
+            throw "The published release is not stable."
+          }
+
+          $publishedNames = @($release.assets | ForEach-Object { $_.name })
+          foreach ($path in $assets) {
+            $name = Split-Path -Leaf $path
+            if ($name -notin $publishedNames) {
+              throw "Release verification failed for $name."
+            }
+          }
+
+          Write-Output $release.url

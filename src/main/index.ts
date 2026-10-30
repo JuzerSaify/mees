@@ -64,6 +64,14 @@ import {
 import { captureArtifactRuntime } from './artifact-runtime'
 import { attachSourceIcons } from './source-icons'
 import { migrateLegacyUserData } from './user-data-migration'
+import {
+  checkForUpdates,
+  downloadUpdate,
+  getUpdateState,
+  initializeUpdater,
+  installUpdate,
+  scheduleAutomaticUpdateCheck
+} from './updater'
 
 const currentDirectory = fileURLToPath(new URL('.', import.meta.url))
 const isDevelopment = Boolean(process.env.ELECTRON_RENDERER_URL)
@@ -1716,6 +1724,11 @@ function registerIpc(): void {
     if (!url) throw new Error('Only http and https links can be opened.')
     await shell.openExternal(url)
   })
+
+  ipcMain.handle(IPC_CHANNELS.getUpdateState, () => getUpdateState())
+  ipcMain.handle(IPC_CHANNELS.checkForUpdates, () => checkForUpdates())
+  ipcMain.handle(IPC_CHANNELS.downloadUpdate, () => downloadUpdate())
+  ipcMain.handle(IPC_CHANNELS.installUpdate, () => installUpdate())
 }
 
 async function boot(): Promise<void> {
@@ -1734,12 +1747,14 @@ async function boot(): Promise<void> {
   await store.init()
   await registerDefaultAssetProtocol(store.assetStore)
   registerIpc()
+  initializeUpdater(() => mainWindow?.webContents ?? null)
 
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false)
   })
 
   await createMainWindow()
+  scheduleAutomaticUpdateCheck()
 }
 
 if (hasSingleInstanceLock) {

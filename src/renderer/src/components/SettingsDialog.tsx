@@ -1,13 +1,17 @@
 import {
+  ArrowDownToLine,
   FolderOpen,
   LoaderCircle,
   LockKeyhole,
+  RefreshCw,
+  RotateCcw,
   ShieldCheck,
   X
 } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   PROVIDER_DEFINITIONS,
+  type AppUpdateState,
   type AppSnapshot,
   type ProviderId
 } from '../../../shared/types'
@@ -28,8 +32,23 @@ export function SettingsDialog({
 }: SettingsDialogProps): React.JSX.Element {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [updateBusy, setUpdateBusy] = useState(false)
+  const [updateState, setUpdateState] = useState<AppUpdateState | null>(null)
   const dialogRef = useRef<HTMLElement>(null)
   useModalFocus(dialogRef, onClose)
+
+  useEffect(() => {
+    let active = true
+    const applyState = (next: AppUpdateState): void => {
+      if (active) setUpdateState(next)
+    }
+    void window.mees?.getUpdateState().then(applyState).catch(() => undefined)
+    const unsubscribe = window.mees?.onUpdateEvent(applyState)
+    return () => {
+      active = false
+      unsubscribe?.()
+    }
+  }, [])
 
   async function toggleReview(): Promise<void> {
     setBusy(true)
@@ -45,6 +64,68 @@ export function SettingsDialog({
       setBusy(false)
     }
   }
+
+  async function runUpdateAction(): Promise<void> {
+    if (!window.mees || !updateState || updateBusy) return
+    setUpdateBusy(true)
+    setError('')
+    try {
+      if (updateState.status === 'downloaded') {
+        await window.mees.installUpdate()
+      } else if (updateState.status === 'available') {
+        setUpdateState(await window.mees.downloadUpdate())
+      } else {
+        setUpdateState(await window.mees.checkForUpdates())
+      }
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setUpdateBusy(false)
+    }
+  }
+
+  const updateStatus = !updateState
+    ? 'Loading update status.'
+    : updateState.status === 'checking'
+      ? 'Checking GitHub releases.'
+      : updateState.status === 'available'
+        ? `Version ${updateState.availableVersion} is available.`
+        : updateState.status === 'downloading'
+          ? `Downloading version ${updateState.availableVersion}. ${updateState.percent ?? 0}%`
+          : updateState.status === 'downloaded'
+            ? `Version ${updateState.availableVersion} is ready to install.`
+            : updateState.status === 'not-available'
+              ? 'Mees is up to date.'
+              : updateState.status === 'unsupported'
+                ? 'Updates run in the installed app.'
+                : updateState.status === 'error'
+                  ? updateState.message || 'The update check could not complete.'
+                  : 'Check GitHub for the next Mees release.'
+
+  const updateAction =
+    updateBusy || updateState?.status === 'checking'
+      ? 'Checking...'
+      : updateState?.status === 'downloading'
+        ? 'Downloading...'
+        : updateState?.status === 'downloaded'
+          ? 'Restart and install'
+          : updateState?.status === 'available'
+            ? 'Download update'
+            : 'Check for updates'
+  const updateIcon =
+    updateState?.status === 'downloaded' ? (
+      <RotateCcw aria-hidden="true" size={14} />
+    ) : updateState?.status === 'available' ? (
+      <ArrowDownToLine aria-hidden="true" size={14} />
+    ) : (
+      <RefreshCw aria-hidden="true" size={14} />
+    )
+  const updateDisabled =
+    updateBusy ||
+    !updateState ||
+    updateState.status === 'checking' ||
+    updateState.status === 'downloading' ||
+    updateState.status === 'unsupported'
 
   return (
     <div
@@ -135,6 +216,56 @@ export function SettingsDialog({
                 <span className="toggle-track">
                   <span className="toggle-thumb" />
                 </span>
+              </button>
+            </div>
+          </section>
+
+          <section className="settings-section" aria-labelledby="updates-title">
+            <div className="settings-label">
+              <h3 id="updates-title">App updates</h3>
+              <p>
+                Mees checks the public GitHub release feed and installs the next
+                Windows version when you choose to restart.
+              </p>
+            </div>
+            <div className="settings-panel update-panel">
+              <div className="update-status">
+                <span className="update-version">
+                  Mees {updateState?.currentVersion ?? '...'}
+                </span>
+                <span
+                  className={`settings-row-description ${
+                    updateState?.status === 'error' ? 'is-error' : ''
+                  }`}
+                  role="status"
+                >
+                  {updateStatus}
+                </span>
+              </div>
+              {updateState?.status === 'downloading' ? (
+                <div
+                  aria-label={`Update download ${updateState.percent ?? 0}% complete`}
+                  aria-valuemax={100}
+                  aria-valuemin={0}
+                  aria-valuenow={updateState.percent ?? 0}
+                  className="update-progress"
+                  role="progressbar"
+                >
+                  <span style={{ width: `${updateState.percent ?? 0}%` }} />
+                </div>
+              ) : null}
+              <button
+                className="secondary-button compact"
+                disabled={updateDisabled}
+                onClick={() => void runUpdateAction()}
+                type="button"
+              >
+                {updateBusy || updateState?.status === 'checking' ? (
+                  <LoaderCircle aria-hidden="true" className="spin" size={14} />
+                ) : (
+                  updateIcon
+                )}
+                {updateAction}
               </button>
             </div>
           </section>

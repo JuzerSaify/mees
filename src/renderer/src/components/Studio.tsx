@@ -14,6 +14,7 @@ import {
   type AgentActivity,
   type AgentQuestion,
   type AgentReferenceImage,
+  type AppUpdateState,
   type AppProject,
   type AppSnapshot,
   type ArtifactRuntimeReport,
@@ -192,6 +193,7 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
   const [selectedDesignMode, setSelectedDesignMode] =
     useState<DesignMode>(snapshot.projects[0]?.designMode ?? 'website')
   const [exporting, setExporting] = useState(false)
+  const [updateState, setUpdateState] = useState<AppUpdateState | null>(null)
 
   const projectsRef = useRef(projects)
   const runRef = useRef<AgentRunView | null>(null)
@@ -220,6 +222,19 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
   useEffect(() => {
     settingsRef.current = snapshot.settings
   }, [snapshot.settings])
+
+  useEffect(() => {
+    let active = true
+    const applyState = (next: AppUpdateState): void => {
+      if (active) setUpdateState(next)
+    }
+    void window.mees?.getUpdateState().then(applyState).catch(() => undefined)
+    const unsubscribe = window.mees?.onUpdateEvent(applyState)
+    return () => {
+      active = false
+      unsubscribe?.()
+    }
+  }, [])
 
   const updateProjects = useCallback(
     (updater: (current: AppProject[]) => AppProject[]): AppProject[] => {
@@ -1636,6 +1651,10 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
     vector: 'vector',
     motion: 'motion'
   }[selectedDesignMode]
+  const hasUpdate =
+    updateState?.status === 'available' ||
+    updateState?.status === 'downloading' ||
+    updateState?.status === 'downloaded'
 
   return (
     <div className="studio-page">
@@ -1683,13 +1702,14 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
             <Clock3 aria-hidden="true" size={16} />
           </button>
           <button
-            aria-label="Open settings"
-            className="icon-button"
-            data-tooltip="Settings"
+            aria-label={hasUpdate ? 'Open settings, update available' : 'Open settings'}
+            className={`icon-button${hasUpdate ? ' has-update' : ''}`}
+            data-tooltip={hasUpdate ? 'Update available' : 'Settings'}
             onClick={() => setSettingsOpen(true)}
             type="button"
           >
             <Settings2 aria-hidden="true" size={16} />
+            {hasUpdate ? <span aria-hidden="true" className="update-indicator" /> : null}
           </button>
         </div>
         <div className="topbar-window-space" />
@@ -1721,13 +1741,14 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
           </div>
           <div className="rail-group">
             <button
-              aria-label="Settings"
-              className="icon-button rail-button"
-              data-tooltip="Settings"
+              aria-label={hasUpdate ? 'Settings, update available' : 'Settings'}
+              className={`icon-button rail-button${hasUpdate ? ' has-update' : ''}`}
+              data-tooltip={hasUpdate ? 'Update available' : 'Settings'}
               onClick={() => setSettingsOpen(true)}
               type="button"
             >
               <Settings2 aria-hidden="true" size={17} />
+              {hasUpdate ? <span aria-hidden="true" className="update-indicator" /> : null}
             </button>
           </div>
         </nav>

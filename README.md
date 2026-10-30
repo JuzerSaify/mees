@@ -20,11 +20,19 @@ npm run dev
 
 On first launch, connect at least one provider with its API key. Mees verifies the key by loading the text-model catalog from that account. Model choices are discovered at runtime, so newly released models appear without an application update.
 
+Source checkouts are for development. Run `npm run build` to compile without creating an installer. Windows installers are built only by the tag-triggered GitHub release workflow in `.github/workflows/release.yml`.
+
 The model menu is filtered to direct text-generation families used by the design agent. Retired entries and audio, image, embedding, live, transcription, music and managed-agent models stay out of the selector. Switching models happens inside the composer, with the model name and a compact effort summary on the trigger.
 
 Reasoning effort lives in the same composer menu. Mees exposes each model's native levels, keeps a separate choice per provider model, and maps that choice to the provider's real request control. Models without an adjustable effort setting fall back to their default behavior.
 
 No API keys are included with this project. Provider usage is billed to the account associated with the key you connect.
+
+## Install and updates
+
+Download the Windows installer from [GitHub Releases](https://github.com/JuzerSaify/mees/releases/latest). The current installer is unsigned, so Windows SmartScreen may ask for confirmation before running it.
+
+Installed releases check the public GitHub release feed for stable updates. Settings shows the current version, available update, download progress and the restart-and-install action. The release workflow verifies the packaged app, native image runtime and updater manifest before publishing the installer and SHA-256 checksums.
 
 ## Security
 

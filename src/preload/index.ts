@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import {
   IPC_CHANNELS,
   type AgentStreamEvent,
+  type AppUpdateState,
   type AppProject,
   type AppSnapshot,
   type ArtifactRuntimeReport,
@@ -71,7 +72,25 @@ const api: MeesApi = {
   openDataFolder: () =>
     ipcRenderer.invoke(IPC_CHANNELS.openDataFolder) as Promise<void>,
   openExternal: (url: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.openExternal, url) as Promise<void>
+    ipcRenderer.invoke(IPC_CHANNELS.openExternal, url) as Promise<void>,
+  getUpdateState: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.getUpdateState) as Promise<AppUpdateState>,
+  checkForUpdates: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.checkForUpdates) as Promise<AppUpdateState>,
+  downloadUpdate: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.downloadUpdate) as Promise<AppUpdateState>,
+  installUpdate: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.installUpdate) as Promise<void>,
+  onUpdateEvent: (listener: (state: AppUpdateState) => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      payload: AppUpdateState
+    ): void => {
+      listener(payload)
+    }
+    ipcRenderer.on(IPC_CHANNELS.updateEvent, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.updateEvent, handler)
+  }
 }
 
 contextBridge.exposeInMainWorld('mees', api)

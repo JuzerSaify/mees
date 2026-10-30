@@ -1,12 +1,16 @@
 {
   "name": "mees",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "A local-first, bring-your-own-key design agent for desktop.",
   "type": "module",
   "main": "./out/main/index.js",
-  "author": "Mees",
-  "license": "UNLICENSED",
+  "author": "JuzerSaify",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JuzerSaify/mees.git"
+  },
   "engines": {
     "node": ">=22.12.0"
   },
@@ -18,16 +22,17 @@
     "verify:tools": "npm run build && node scripts/verify-agent-tools-modes.mjs",
     "build": "npm run typecheck && electron-vite build",
     "icon": "node scripts/generate-icon.mjs",
-    "package": "npm run icon && npm run build && electron-builder",
     "preview": "electron-vite preview"
   },
   "dependencies": {
     "@fontsource-variable/schibsted-grotesk": "5.3.0",
+    "electron-updater": "^6.8.11",
     "lucide-react": "1.61.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "react-markdown": "10.1.0",
-    "remark-gfm": "4.0.1"
+    "remark-gfm": "4.0.1",
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@types/node": "26.6.5",
@@ -38,7 +43,6 @@
     "electron-builder": "26.18.0",
     "electron-vite": "6.0.0",
     "playwright": "1.64.1",
-    "sharp": "0.35.5",
     "typescript": "7.0.2",
     "vite": "8.3.5",
     "vitest": "5.0.5"
@@ -48,6 +52,10 @@
     "productName": "Mees",
     "artifactName": "Mees-Setup-${version}.${ext}",
     "asar": true,
+    "asarUnpack": [
+      "node_modules/sharp/**/*",
+      "node_modules/@img/**/*"
+    ],
     "directories": {
       "output": "release"
     },
@@ -60,6 +68,14 @@
       "target": "nsis",
       "icon": "build/icon.png"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "JuzerSaify",
+        "repo": "mees",
+        "releaseType": "release"
+      }
+    ],
     "mac": {
       "target": "dmg",
       "category": "public.app-category.graphics-design",

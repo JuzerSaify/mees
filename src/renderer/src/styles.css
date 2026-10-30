@@ -230,6 +230,17 @@ a {
   cursor: pointer;
 }
 
+.update-indicator {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--ground);
+  border-radius: 50%;
+  background: var(--accent);
+}
+
 .icon-button:hover:not(:disabled) {
   color: var(--ink);
   background: var(--surface-active);
@@ -3448,6 +3459,51 @@ a {
   font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.update-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 16px;
+  align-items: center;
+  padding: 13px;
+}
+
+.update-status {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.update-version {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 560;
+}
+
+.update-panel .settings-row-description {
+  white-space: normal;
+}
+
+.update-panel .settings-row-description.is-error {
+  color: var(--negative);
+}
+
+.update-progress {
+  grid-column: 1 / -1;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--border);
+}
+
+.update-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 180ms linear;
 }
 
 .storage-panel {
