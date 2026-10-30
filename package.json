@@ -20,6 +20,8 @@
     "test": "vitest run",
     "verify:ui": "npm run build && node scripts/verify-ui.mjs",
     "verify:tools": "npm run build && node scripts/verify-agent-tools-modes.mjs",
+    "site:og": "node scripts/generate-site-og.mjs",
+    "site:verify": "node scripts/verify-site.mjs",
     "build": "npm run typecheck && electron-vite build",
     "icon": "node scripts/generate-icon.mjs",
     "preview": "electron-vite preview"

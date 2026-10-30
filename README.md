@@ -34,6 +34,18 @@ Download the Windows installer from [GitHub Releases](https://github.com/JuzerSa
 
 Installed releases check the public GitHub release feed for stable updates. Settings shows the current version, available update, download progress and the restart-and-install action. The release workflow verifies the packaged app, native image runtime and updater manifest before publishing the installer and SHA-256 checksums.
 
+## Product website
+
+The static product website lives in `mees-product-site/`. It contains no app screenshots; the website, logo, vector and motion previews are rendered directly from HTML, CSS and SVG.
+
+```powershell
+npm run site:og
+npm run site:verify
+npx vercel deploy mees-product-site --prod
+```
+
+The site ships with a content security policy, strict transport security, frame denial, a restricted permissions policy and cache headers for static assets.
+
 ## Security
 
 - API keys are encrypted with Electron `safeStorage` before being written to disk.
