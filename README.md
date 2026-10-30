@@ -36,7 +36,7 @@ Installed releases check the public GitHub release feed for stable updates. Sett
 
 ## Product website
 
-The static product website lives in `mees-product-site/`. It contains no app screenshots; the website, logo, vector and motion previews are rendered directly from HTML, CSS and SVG.
+The static product website lives in `mees-product-site/`. Its hero workspace is rendered directly in HTML and CSS, not as an app screenshot. Product actions remain real links, while controls that belong only to the desktop app are shown as static chrome.
 
 ```powershell
 npm run site:og

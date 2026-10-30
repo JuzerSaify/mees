@@ -53,7 +53,7 @@ await writeFile(
 )
 
 const reference = await readFile(
-  join(root, 'mees-product-site', 'assets', 'mode-website.png')
+  join(root, 'build', 'icon.png')
 )
 async function storedSvgIcon(letter, color) {
   const svg = Buffer.from(
@@ -137,8 +137,8 @@ const project = {
           id: 'ref-one',
           name: 'Editorial reference',
           mimeType: 'image/webp',
-          width: 1803,
-          height: 1020,
+          width: 512,
+          height: 512,
           dataUrl: `data:image/png;base64,${reference.toString('base64')}`,
           visualSummary: {
             imageId: 'ref-one',

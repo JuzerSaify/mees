@@ -27,7 +27,7 @@ const server = createServer(async (request, response) => {
       })
       response.end(
         JSON.stringify({
-          stars: 0,
+          stars: 1,
           downloads: 2,
           downloadUrl:
             'https://github.com/JuzerSaify/mees/releases/download/v1.0.0/Mees-Setup-1.0.0.exe'
@@ -35,6 +35,7 @@ const server = createServer(async (request, response) => {
       )
       return
     }
+
     const relativePath =
       pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '')
     const filePath = normalize(join(root, relativePath))
@@ -45,7 +46,8 @@ const server = createServer(async (request, response) => {
     }
     const bytes = await readFile(filePath)
     response.writeHead(200, {
-      'Content-Type': contentTypes[extname(filePath)] ?? 'application/octet-stream',
+      'Content-Type':
+        contentTypes[extname(filePath)] ?? 'application/octet-stream',
       'Content-Security-Policy':
         "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
     })
@@ -57,7 +59,9 @@ const server = createServer(async (request, response) => {
 })
 
 await mkdir(screenshotDirectory, { recursive: true })
-await new Promise((resolveListening) => server.listen(4173, '127.0.0.1', resolveListening))
+await new Promise((resolveListening) =>
+  server.listen(4173, '127.0.0.1', resolveListening)
+)
 
 const browser = await chromium.launch()
 try {
@@ -88,7 +92,13 @@ try {
   assert.equal(await page.locator('.github-stars .github-icon').count(), 1)
   assert.equal(await page.locator('.button .windows-icon').count(), 3)
   assert.match(await page.locator('.provider-ticker').innerText(), /OpenAI/)
+  assert.match(await page.locator('.provider-ticker').innerText(), /Claude/)
+  assert.match(await page.locator('.provider-ticker').innerText(), /Gemini/)
   assert.match(await page.locator('.provider-ticker').innerText(), /DeepSeek/)
+  await page.waitForFunction(
+    () => document.querySelector('[data-github-stars]')?.textContent === '1'
+  )
+
   assert.equal(
     await page
       .locator('.provider-ticker-track')
@@ -100,100 +110,48 @@ try {
     await page.locator('.models-section').innerText(),
     /Opus 5\.5/
   )
-  const heroStagePosition = await page.evaluate(() => {
-    const stage = document.querySelector('[data-live-ui]')
-    return Math.round(stage.getBoundingClientRect().top)
-  })
-  assert.ok(heroStagePosition < 900)
 
-  await page.locator('[data-model-trigger]').click()
-  await page.locator('[data-model-popover]').waitFor({ state: 'visible' })
-  assert.equal(await page.locator('[data-model-trigger]').getAttribute('aria-expanded'), 'true')
-  assert.match(await page.locator('[data-model-popover]').innerText(), /Opus 5\.5/)
-  await page.locator('[data-live-ui]').screenshot({
-    path: join(screenshotDirectory, 'desktop-model-popover.png')
-  })
-  await page.keyboard.press('Escape')
-  await page.locator('[data-model-popover]').waitFor({ state: 'hidden' })
+  const appWindow = page.locator('.app-window')
+  assert.equal(await appWindow.locator('button, input, textarea, a[href]').count(), 0)
+  assert.match(await appWindow.innerText(), /Untitled design/)
+  assert.match(await appWindow.innerText(), /No website yet/)
+  assert.match(await appWindow.innerText(), /Opus 5\.5/)
+  assert.equal(await page.locator('.app-canvas img').count(), 0)
 
-  const expectedDirectionTitles = {
-    coastal: 'Read the coast.',
-    civic: 'A city keeps time.',
-    signal: 'Make the room turn.'
-  }
-  for (const [direction, title] of Object.entries(expectedDirectionTitles)) {
-    await page.locator(`[data-direction-button="${direction}"]`).click()
-    assert.equal(
-      await page.locator('[data-live-ui]').getAttribute('data-direction'),
-      direction
-    )
-    assert.equal(await page.locator('[data-artifact-title]').innerText(), title)
-    await page.waitForTimeout(420)
-    await page.locator('[data-live-ui]').screenshot({
-      path: join(screenshotDirectory, `desktop-direction-${direction}.png`)
-    })
-  }
-
-  await page.locator('[data-direction-button="civic"]').click()
-
-  for (const mode of ['logo', 'vector', 'motion']) {
-    await page.locator(`[data-mode-button="${mode}"]`).click()
-    assert.equal(await page.locator('[data-live-ui]').getAttribute('data-mode'), mode)
-    assert.equal(
-      await page.locator(`[data-artifact="${mode}"]`).getAttribute('aria-hidden'),
-      null
-    )
-    await page.waitForTimeout(520)
-    await page.locator('[data-live-ui]').screenshot({
-      path: join(screenshotDirectory, `desktop-${mode}.png`)
-    })
-  }
-
-  const motionPlaying = await page
-    .locator('[data-motion-artifact]')
-    .evaluate((element) => element.classList.contains('is-playing'))
-  if (!(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches))) {
-    assert.equal(motionPlaying, true)
-    await page.locator('[data-motion-toggle]').click()
-    assert.equal(
-      await page.locator('[data-motion-artifact]').evaluate((element) =>
-        element.classList.contains('is-playing')
-      ),
-      false
-    )
-  }
-
-  await page.locator('[data-set-mode="website"]').click()
-  assert.equal(await page.locator('[data-live-ui]').getAttribute('data-mode'), 'website')
-
-  const linkTargets = await page.locator('a[href]').evaluateAll((links) =>
-    links.map((link) => link.getAttribute('href'))
+  const stagePosition = await appWindow.evaluate((element) =>
+    Math.round(element.getBoundingClientRect().top)
   )
-  assert.ok(linkTargets.every(Boolean))
+  assert.ok(stagePosition < 900)
+  await appWindow.screenshot({
+    path: join(screenshotDirectory, 'desktop-static-app.png')
+  })
 
   const mobile = await browser.newPage({ viewport: { width: 390, height: 844 } })
   await mobile.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle' })
   await mobile.locator('[data-menu-toggle]').click()
   await mobile.locator('[data-mobile-menu]').waitFor({ state: 'visible' })
-  assert.equal(await mobile.locator('[data-menu-toggle]').getAttribute('aria-expanded'), 'true')
+  assert.equal(
+    await mobile.locator('[data-menu-toggle]').getAttribute('aria-expanded'),
+    'true'
+  )
   await mobile.screenshot({
     path: join(screenshotDirectory, 'mobile-menu.png')
   })
   await mobile.locator('[data-mobile-menu] a[href="#download"]').click()
   await mobile.locator('[data-mobile-menu]').waitFor({ state: 'hidden' })
-  await mobile.locator('[data-live-ui]').screenshot({
-    path: join(screenshotDirectory, 'mobile-live-ui.png')
-  })
 
   const overflow = await mobile.evaluate(
     () => document.documentElement.scrollWidth - window.innerWidth
   )
   assert.equal(overflow, 0)
+  await mobile.locator('.app-window').screenshot({
+    path: join(screenshotDirectory, 'mobile-static-app.png')
+  })
 
   const reduced = await browser.newPage({ viewport: { width: 1440, height: 900 } })
   await reduced.emulateMedia({ reducedMotion: 'reduce' })
   await reduced.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle' })
-  const reducedState = await reduced.locator('[data-artifact="website"]').evaluate((element) => {
+  const reducedState = await reduced.locator('.app-window').evaluate((element) => {
     const style = getComputedStyle(element)
     return {
       display: style.display,
@@ -206,7 +164,6 @@ try {
   assert.notEqual(reducedState.display, 'none')
   assert.equal(reducedState.opacity, '1')
   assert.equal(reducedState.providerAnimation, 'none')
-
   assert.deepEqual(errors, [])
 
   console.log(
@@ -214,11 +171,12 @@ try {
       {
         status: 'pass',
         screenshotAssets: 0,
-        providerTicker: true,
-        heroStagePosition,
-        modes: ['website', 'logo', 'vector', 'motion'],
-        directions: ['coastal', 'civic', 'signal'],
-        model: 'Opus 5.5',
+        appWindowControls: 0,
+        appCanvasImages: 0,
+        providerTicker: 'OpenAI / Claude / Gemini / DeepSeek',
+        githubStarsRendered: 1,
+        downloadsRendered: 2,
+        appWindowTop: stagePosition,
         mobileOverflow: overflow,
         reducedMotionFallback: reducedState,
         screenshots: screenshotDirectory

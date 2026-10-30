@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="Mees is a local-first design agent for websites, logos, vector artwork and silent motion. Bring your own OpenAI, Claude, Gemini or DeepSeek key."
+      content="Mees is a local-first desktop design agent for websites, logos, vector artwork and silent motion. Bring your own OpenAI, Claude, Gemini or DeepSeek key."
     />
     <meta
       http-equiv="Content-Security-Policy"
@@ -37,7 +37,7 @@
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
 
-    <header class="site-header" data-site-header>
+    <header class="site-header">
       <div class="header-inner">
         <a class="brand" href="#top" aria-label="Mees home">
           <img src="assets/mees-mark.svg" width="24" height="24" alt="" />
@@ -60,14 +60,10 @@
             aria-label="Star Mees on GitHub"
           >
             <svg aria-hidden="true" class="star-icon" viewBox="0 0 24 24">
-              <path
-                d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z"
-              />
+              <path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z" />
             </svg>
             <svg aria-hidden="true" class="github-icon" viewBox="0 0 24 24">
-              <path
-                d="M12 2.6a9.4 9.4 0 0 0-3 18.3c.5.1.7-.2.7-.5v-1.8c-2.7.6-3.3-1.2-3.3-1.2-.4-1-1.1-1.3-1.1-1.3-.9-.6.1-.6.1-.6 1 0 1.6 1 1.6 1 .9 1.6 2.3 1.1 2.9.9.1-.6.4-1.1.7-1.3-2.2-.2-4.5-1.1-4.5-4.9 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.6 0 0 .8-.3 2.7 1a9 9 0 0 1 4.8 0c1.9-1.3 2.7-1 2.7-1 .5 1.3.2 2.3.1 2.6.6.7 1 1.6 1 2.7 0 3.8-2.3 4.7-4.5 4.9.4.3.7 1 .7 1.9v2.8c0 .3.2.6.7.5a9.4 9.4 0 0 0-3-18.3Z"
-              />
+              <path d="M12 2.6a9.4 9.4 0 0 0-3 18.3c.5.1.7-.2.7-.5v-1.8c-2.7.6-3.3-1.2-3.3-1.2-.4-1-1.1-1.3-1.1-1.3-.9-.6.1-.6.1-.6 1 0 1.6 1 1.6 1 .9 1.6 2.3 1.1 2.9.9.1-.6.4-1.1.7-1.3-2.2-.2-4.5-1.1-4.5-4.9 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.6 0 0 .8-.3 2.7 1a9 9 0 0 1 4.8 0c1.9-1.3 2.7-1 2.7-1 .5 1.3.2 2.3.1 2.6.6.7 1 1.6 1 2.7 0 3.8-2.3 4.7-4.5 4.9.4.3.7 1 .7 1.9v2.8c0 .3.2.6.7.5a9.4 9.4 0 0 0-3-18.3Z" />
             </svg>
             <span data-github-stars>0</span>
           </a>
@@ -96,8 +92,7 @@
             data-menu-toggle
             type="button"
           >
-            <span></span>
-            <span></span>
+            <span></span><span></span>
           </button>
         </div>
       </div>
@@ -123,8 +118,8 @@
         </div>
         <div class="hero-detail">
           <p>
-            Mees turns one brief into a website, mark, vector or silent motion
-            piece while its research, tools and review stay beside the work.
+            One brief becomes a website, mark, vector or silent motion. Research,
+            tools and review stay beside the work.
           </p>
           <div class="hero-actions">
             <a
@@ -152,339 +147,116 @@
             <span aria-hidden="true">/</span> v1.0.0
           </p>
         </div>
-      </section>
 
-      <section class="canvas-section" id="canvas" aria-labelledby="canvas-title">
-        <h2 class="sr-only" id="canvas-title">A live Mees canvas</h2>
+        <div class="hero-product" id="canvas">
+          <h2 class="sr-only">The Mees desktop workspace</h2>
+          <div class="hero-glow" aria-hidden="true"></div>
 
-        <div
-          class="live-ui"
-          data-direction="coastal"
-          data-live-ui
-          data-mode="website"
-          data-ui
-        >
-          <div class="live-topbar">
-            <div class="run-identity">
-              <img src="assets/mees-mark.svg" width="18" height="18" alt="" />
-              <span>Mees canvas</span>
-              <span class="run-state" role="status" aria-live="polite">
-                <i aria-hidden="true"></i>
-                <span data-run-status>Ready</span>
-              </span>
-            </div>
-
-            <div class="live-controls">
-              <div class="model-wrap">
-                <button
-                  class="model-trigger"
-                  aria-controls="model-popover"
-                  aria-expanded="false"
-                  data-model-trigger
-                  type="button"
-                >
-                  <img src="assets/providers/claude.png" width="16" height="16" alt="" />
-                  <span>Opus 5.5</span>
-                  <svg aria-hidden="true" viewBox="0 0 16 16">
-                    <path d="m4 6 4 4 4-4" />
-                  </svg>
-                </button>
-                <div
-                  class="model-popover"
-                  data-model-popover
-                  id="model-popover"
-                  hidden
-                >
-                  <div class="model-provider">
-                    <img
-                      src="assets/providers/claude.png"
-                      width="22"
-                      height="22"
-                      alt=""
-                    />
-                    <span>Claude</span>
-                    <span>Connected with your key</span>
-                  </div>
-                  <strong>Opus 5.5</strong>
-                  <p>Native effort control. Model catalog loaded from your account.</p>
-                </div>
-              </div>
-
-              <div class="mode-tabs" aria-label="Artifact mode" role="tablist">
-                <button
-                  aria-controls="artifact-website"
-                  aria-selected="true"
-                  class="is-active"
-                  data-mode-button="website"
-                  id="mode-website"
-                  role="tab"
-                  tabindex="0"
-                  type="button"
-                >
-                  Website
-                </button>
-                <button
-                  aria-controls="artifact-logo"
-                  aria-selected="false"
-                  data-mode-button="logo"
-                  id="mode-logo"
-                  role="tab"
-                  tabindex="-1"
-                  type="button"
-                >
-                  Logo
-                </button>
-                <button
-                  aria-controls="artifact-vector"
-                  aria-selected="false"
-                  data-mode-button="vector"
-                  id="mode-vector"
-                  role="tab"
-                  tabindex="-1"
-                  type="button"
-                >
-                  Vector
-                </button>
-                <button
-                  aria-controls="artifact-motion"
-                  aria-selected="false"
-                  data-mode-button="motion"
-                  id="mode-motion"
-                  role="tab"
-                  tabindex="-1"
-                  type="button"
-                >
-                  Motion
-                </button>
+          <div
+            class="app-window"
+            data-ui
+            aria-label="Mees desktop workspace with an empty website canvas"
+          >
+            <div class="app-titlebar">
+              <div class="app-title-left">
+                <img src="assets/mees-mark.svg" width="20" height="20" alt="" />
+                <span>Untitled design</span>
               </div>
             </div>
-          </div>
 
-          <div class="live-body">
-            <aside class="run-panel" aria-label="Agent working details">
-              <div class="run-prompt">
-                <p class="run-label">Direction</p>
-                <div
-                  aria-label="Choose a creative direction"
-                  class="direction-options"
-                  role="group"
-                >
-                  <button
-                    aria-pressed="true"
-                    class="is-active"
-                    data-direction-button="coastal"
-                    type="button"
-                  >
-                    Coastal
-                  </button>
-                  <button
-                    aria-pressed="false"
-                    data-direction-button="civic"
-                    type="button"
-                  >
-                    Civic
-                  </button>
-                  <button
-                    aria-pressed="false"
-                    data-direction-button="signal"
-                    type="button"
-                  >
-                    Signal
-                  </button>
-                </div>
-              </div>
-
-              <div class="run-steps" aria-live="polite">
-                <div class="run-step is-complete" data-run-step>
-                  <span class="run-marker" aria-hidden="true"></span>
-                  <span>Understanding the brief</span>
-                  <span class="run-step-state" data-step-state>Done</span>
-                </div>
-                <div class="run-step is-complete" data-run-step>
-                  <span class="run-marker" aria-hidden="true"></span>
-                  <span>Finding the visual language</span>
-                  <span class="run-step-state" data-step-state>Done</span>
-                </div>
-                <div class="run-step is-complete" data-run-step>
-                  <span class="run-marker" aria-hidden="true"></span>
-                  <span>Composing the artifact</span>
-                  <span class="run-step-state" data-step-state>Done</span>
-                </div>
-                <div class="run-step is-complete" data-run-step>
-                  <span class="run-marker" aria-hidden="true"></span>
-                  <span>Reviewing the canvas</span>
-                  <span class="run-step-state" data-step-state>Done</span>
-                </div>
-              </div>
-
-              <div class="run-tools">
-                <span>Web search ready</span>
-                <span>Browser review ready</span>
-              </div>
-            </aside>
-
-            <div class="canvas-panel">
-              <div class="canvas-bar">
-                <span data-canvas-name>Fieldwork / Atlantic archive</span>
-                <span>Live artifact</span>
-              </div>
-
-              <div class="artifact-shell">
-                <div
-                  aria-labelledby="mode-website"
-                  class="artifact-view is-active"
-                  data-artifact="website"
-                  id="artifact-website"
-                  role="tabpanel"
-                >
-                  <div class="website-artifact">
-                    <header class="demo-nav">
-                      <strong data-artifact-brand>Fieldwork</strong>
-                      <span>Index</span>
-                      <span>Notes</span>
-                      <span>About</span>
-                    </header>
-                    <div class="demo-main">
-                      <div class="demo-copy">
-                        <p class="demo-context" data-artifact-context>
-                          Atlantic archive
-                        </p>
-                        <p class="demo-title" data-artifact-title>
-                          Read the coast.
-                        </p>
-                        <p class="demo-description" data-artifact-description>
-                          A living archive of the Atlantic edge, told through
-                          land, weather and the people who keep watch.
-                        </p>
-                      </div>
-                      <div class="demo-object" aria-hidden="true">
-                        <span class="demo-coordinate" data-artifact-coordinate>
-                          N / 04
-                        </span>
-                        <span class="demo-form"></span>
-                      </div>
-                      <div class="demo-index">
-                        <span data-artifact-index-one>Shoreline</span>
-                        <span data-artifact-index-two>Weather</span>
-                        <span data-artifact-index-three>Oral history</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  aria-labelledby="mode-logo"
-                  class="artifact-view"
-                  data-artifact="logo"
-                  id="artifact-logo"
-                  role="tabpanel"
-                >
-                  <div class="logo-artifact">
-                    <div class="logo-lockup">
-                      <svg
-                        aria-label="Generated logo preview"
-                        class="generated-logo"
-                        viewBox="0 0 320 320"
-                      >
-                        <g class="logo-shape logo-shape-coastal">
-                          <path d="M58 222c35-97 83-144 144-140 28 2 47 20 60 54-43-14-73-7-91 20-21 31-18 60 8 87-57 1-97-6-121-21Z" />
-                          <circle cx="210" cy="94" r="23" />
-                        </g>
-                        <g class="logo-shape logo-shape-civic">
-                          <path d="M58 78h76v76H58zm128 0h76v76h-76zM58 206h76v76H58zm128 0h76v76h-76z" />
-                          <path d="M146 166h28v28h-28z" />
-                        </g>
-                        <g class="logo-shape logo-shape-signal">
-                          <path d="M74 246 171 62h79l-65 119h61L138 258h-81l63-93H74Z" />
-                        </g>
-                      </svg>
-                      <span class="generated-wordmark" data-logo-wordmark>
-                        Fieldwork
-                      </span>
-                    </div>
-                    <div class="logo-type-scale" aria-label="Logo scale preview">
-                      <span data-logo-wordmark>Fieldwork</span>
-                      <span>32 px</span>
-                      <span>18 px</span>
-                      <span>12 px</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  aria-labelledby="mode-vector"
-                  class="artifact-view"
-                  data-artifact="vector"
-                  id="artifact-vector"
-                  role="tabpanel"
-                >
-                  <div class="vector-artifact">
-                    <svg
-                      aria-label="Editable vector artwork preview"
-                      class="vector-art"
-                      viewBox="0 0 900 620"
-                    >
-                      <g class="vector-scene vector-coastal">
-                        <path d="M0 370c110-75 194-38 298-92 123-64 248-38 350-95 82-45 168-51 252-35v472H0Z" />
-                        <path d="M0 430c150-111 264-37 395-98 107-49 228-19 311-75 48-33 100-47 194-31v394H0Z" />
-                        <circle cx="690" cy="129" r="64" />
-                        <path d="M88 98h214M88 124h146M88 150h108" />
-                      </g>
-                      <g class="vector-scene vector-civic">
-                        <path d="M92 92h256v178H92zM388 92h184v90H388zM612 92h196v178H612zM92 310h480v218H92zM612 310h196v218H612z" />
-                        <circle cx="712" cy="181" r="42" />
-                        <path d="M136 354h374M136 392h312M136 430h358M136 468h228" />
-                      </g>
-                      <g class="vector-scene vector-signal">
-                        <path d="M83 468 276 93h123l-88 166h142L235 545H80l141-181H83Z" />
-                        <circle cx="682" cy="159" r="101" />
-                        <path d="M676 58v202M575 159h202" />
-                      </g>
-                    </svg>
-                    <div class="vector-caption">
-                      <span data-vector-name>Atlantic contour</span>
-                      <span>Editable vector</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  aria-labelledby="mode-motion"
-                  class="artifact-view"
-                  data-artifact="motion"
-                  id="artifact-motion"
-                  role="tabpanel"
-                >
-                  <div class="motion-artifact" data-motion-artifact>
-                    <div class="motion-stage" aria-hidden="true">
-                      <span class="motion-word">FIELD</span>
-                      <span class="motion-disc"></span>
-                      <span class="motion-line"></span>
-                      <span class="motion-caption" data-motion-caption>
-                        A measured drift, not a loop.
-                      </span>
-                    </div>
-                    <div class="motion-controls">
-                      <button
-                        aria-pressed="true"
-                        class="motion-toggle"
-                        data-motion-toggle
-                        type="button"
-                      >
-                        Pause
-                      </button>
-                      <span>Silent motion</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="canvas-foot">
-                <span data-mode-description>
-                  Responsive website rendered in the live canvas
+            <div class="app-layout">
+              <div class="app-rail" aria-hidden="true">
+                <span class="rail-control">
+                  <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>
                 </span>
-                <span>Opus 5.5</span>
+                <span class="rail-control">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M4.9 7.8A8 8 0 1 1 4 13" />
+                    <path d="M4 4v4h4M12 7v5l3 2" />
+                  </svg>
+                </span>
+                <span class="rail-spacer"></span>
+                <span class="rail-control">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M10 14v6" />
+                  </svg>
+                </span>
               </div>
+
+              <aside class="app-agent" aria-label="Agent panel preview">
+                <div class="app-agent-head">
+                  <strong>Agent</strong>
+                </div>
+                <p class="agent-empty-copy">
+                  Start with the subject, the people it serves and what the page
+                  needs to do.
+                </p>
+                <div class="static-composer">
+                  <span class="static-placeholder">
+                    Describe the website you want to make
+                  </span>
+                  <div class="static-composer-meta">
+                    <span class="static-model">
+                      <img
+                        src="assets/providers/claude.png"
+                        width="16"
+                        height="16"
+                        alt=""
+                      />
+                      Opus 5.5
+                    </span>
+                    <span>High</span>
+                    <span>Website</span>
+                    <span class="static-send" aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <path d="M12 19V5m0 0-5 5m5-5 5 5" />
+                      </svg>
+                    </span>
+                  </div>
+                </div>
+              </aside>
+
+              <section class="app-canvas" aria-label="Empty canvas preview">
+                <div class="static-toolbar" aria-hidden="true">
+                  <div class="static-devices">
+                    <span class="is-active">
+                      <svg viewBox="0 0 24 24">
+                        <rect x="3" y="5" width="18" height="12" rx="1.5" />
+                        <path d="M9 20h6M12 17v3" />
+                      </svg>
+                    </span>
+                    <span>
+                      <svg viewBox="0 0 24 24">
+                        <rect x="5" y="3" width="14" height="18" rx="2" />
+                      </svg>
+                    </span>
+                    <span>
+                      <svg viewBox="0 0 24 24">
+                        <rect x="7" y="2" width="10" height="20" rx="2" />
+                        <path d="M11 18h2" />
+                      </svg>
+                    </span>
+                    <em>1440 x 1000</em>
+                  </div>
+                  <div class="static-actions">
+                    <span>Review</span>
+                    <span>Refine</span>
+                    <span>Versions</span>
+                    <span>Files</span>
+                    <span>Open</span>
+                    <span>Export</span>
+                  </div>
+                </div>
+                <div class="empty-canvas">
+                  <svg aria-hidden="true" class="empty-canvas-icon" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M3.8 8.5h16.4M3.8 15.5h16.4M8 3.7c2.3 2.1 2.3 14.5 0 16.6M16 3.7c-2.3 2.1-2.3 14.5 0 16.6" />
+                  </svg>
+                  <h3>No website yet</h3>
+                  <p>Describe the website in the agent panel.</p>
+                  <small>Responsive HTML · desktop, tablet and mobile</small>
+                </div>
+              </section>
             </div>
           </div>
         </div>
@@ -534,34 +306,34 @@
         </div>
 
         <div class="output-list">
-          <button data-set-mode="website" type="button">
+          <article>
             <span class="output-name">Website</span>
             <span class="output-description">
               Responsive HTML, streamed into the canvas and reviewed at three widths.
             </span>
-            <span class="output-action">Open canvas</span>
-          </button>
-          <button data-set-mode="logo" type="button">
+            <span class="output-action">HTML · desktop · tablet · mobile</span>
+          </article>
+          <article>
             <span class="output-name">Logo</span>
             <span class="output-description">
               A standalone SVG mark built for scale, with transparent artwork by default.
             </span>
-            <span class="output-action">Open canvas</span>
-          </button>
-          <button data-set-mode="vector" type="button">
+            <span class="output-action">SVG · scalable · transparent</span>
+          </article>
+          <article>
             <span class="output-name">Vector</span>
             <span class="output-description">
               An editable SVG composition with a subject-led focal hierarchy.
             </span>
-            <span class="output-action">Open canvas</span>
-          </button>
-          <button data-set-mode="motion" type="button">
+            <span class="output-action">Editable paths · artboard</span>
+          </article>
+          <article>
             <span class="output-name">Motion</span>
             <span class="output-description">
               A silent, code-built piece with deterministic playback and no audio track.
             </span>
-            <span class="output-action">Open canvas</span>
-          </button>
+            <span class="output-action">Canvas motion · silent</span>
+          </article>
         </div>
       </section>
 
@@ -573,20 +345,17 @@
             that key and keeps provider secrets inside the desktop main process.
           </p>
         </div>
-
         <p class="sr-only">
           Supported providers: OpenAI, Claude, Gemini and DeepSeek.
         </p>
         <div class="provider-ticker" aria-hidden="true">
           <div class="provider-ticker-track">
-            <span>OpenAI</span><i></i><span>Claude</span><i></i><span>Gemini</span><i></i>
-            <span>DeepSeek</span><i></i><span>OpenAI</span><i></i><span>Claude</span><i></i>
-            <span>Gemini</span><i></i><span>DeepSeek</span><i></i>
+            <span>OpenAI</span><i></i><span>Claude</span><i></i><span>Gemini</span><i></i><span>DeepSeek</span><i></i>
+            <span>OpenAI</span><i></i><span>Claude</span><i></i><span>Gemini</span><i></i><span>DeepSeek</span><i></i>
           </div>
           <div class="provider-ticker-track">
-            <span>OpenAI</span><i></i><span>Claude</span><i></i><span>Gemini</span><i></i>
-            <span>DeepSeek</span><i></i><span>OpenAI</span><i></i><span>Claude</span><i></i>
-            <span>Gemini</span><i></i><span>DeepSeek</span><i></i>
+            <span>OpenAI</span><i></i><span>Claude</span><i></i><span>Gemini</span><i></i><span>DeepSeek</span><i></i>
+            <span>OpenAI</span><i></i><span>Claude</span><i></i><span>Gemini</span><i></i><span>DeepSeek</span><i></i>
           </div>
         </div>
       </section>
