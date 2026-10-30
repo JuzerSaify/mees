@@ -9,7 +9,6 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  PROVIDER_DEFINITIONS,
   type AgentStreamEvent,
   type AgentActivity,
   type AgentQuestion,
@@ -210,7 +209,6 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
   const activeProject =
     projects.find((project) => project.id === activeProjectId) ?? null
   const isGenerating = run?.status === 'starting' || run?.status === 'streaming'
-  const hasModel = Boolean(snapshot.settings.activeProvider && snapshot.settings.activeModel)
   const isAuditingActive =
     Boolean(activeProjectId) && auditRunningFor === activeProjectId
 

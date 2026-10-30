@@ -152,10 +152,7 @@ function exportFileBase(title: string, fallback: string): string {
   )
 }
 
-async function recordMotionVideo(
-  html: string,
-  title: string
-): Promise<Buffer> {
+async function recordMotionVideo(html: string): Promise<Buffer> {
   const recorderWindow = new BrowserWindow({
     width: 1280,
     height: 720,
@@ -1672,7 +1669,7 @@ function registerIpc(): void {
         ? await dialog.showSaveDialog(mainWindow, options)
         : await dialog.showSaveDialog(options)
       if (result.canceled || !result.filePath) return { saved: false }
-      const buffer = await recordMotionVideo(rawHtml, title)
+      const buffer = await recordMotionVideo(rawHtml)
       await writeFile(result.filePath, buffer)
       return { saved: true, filePath: result.filePath }
     }

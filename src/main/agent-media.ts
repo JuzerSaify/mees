@@ -250,7 +250,6 @@ export async function vectorizeAsset(
     .raw()
     .toBuffer({ resolveWithObject: true })
   const colorIndexes = new Uint8Array(info.width * info.height)
-  let cursor = 0
   for (let pixel = 0; pixel < colorIndexes.length; pixel += 1) {
     const offset = pixel * info.channels
     const alpha = info.channels === 4 ? (data[offset + 3] ?? 0) : 255

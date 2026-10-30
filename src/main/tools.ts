@@ -17,14 +17,6 @@ const assetCache = new Map<
   { expiresAt: number; assets: FetchedVisualAsset[] }
 >()
 
-function asRecord(value: unknown): JsonRecord {
-  return value && typeof value === 'object' ? (value as JsonRecord) : {}
-}
-
-function asArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : []
-}
-
 function decodeEntities(value: string): string {
   return value
     .replace(/&#(\d+);/g, (_match, code: string) =>

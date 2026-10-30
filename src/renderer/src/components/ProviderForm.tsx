@@ -43,7 +43,6 @@ export function ProviderForm({
 
   const selectedModel =
     status.models.find((model) => model.id === status.selectedModel) ?? status.models[0]
-  const showingKeyForm = !status.connected || editingKey
   const fieldId = `api-key-${provider}`
 
   async function connect(): Promise<void> {
