@@ -9,7 +9,9 @@ import {
   parseBingRssResults,
   parseDuckDuckGoResults,
   readWebSources,
-  researchWeb
+  researchWeb,
+  searchWikimediaCommons,
+  searchWikipediaImages
 } from './tools'
 
 afterEach(() => {
@@ -223,6 +225,286 @@ describe('web asset extraction', () => {
     ])
   })
 
+  it('returns attributable Wikimedia Commons media with structured metadata', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            query: {
+              pages: {
+                '1': {
+                  title: 'File:Elon Musk portrait 2024.jpg',
+                  imageinfo: [
+                    {
+                      mime: 'image/jpeg',
+                      width: 1600,
+                      height: 1200,
+                      thumburl:
+                        'https://upload.wikimedia.org/portrait-1600.jpg',
+                      descriptionurl:
+                        'https://commons.wikimedia.org/wiki/File:Elon_Musk_portrait_2024.jpg',
+                      extmetadata: {
+                        ImageDescription: {
+                          value: '<p>Elon Musk portrait at a public event.</p>'
+                        },
+                        Artist: { value: '<a href="#">Example Photographer</a>' },
+                        LicenseShortName: { value: 'CC BY-SA 4.0' },
+                        LicenseUrl: {
+                          value: 'https://creativecommons.org/licenses/by-sa/4.0/'
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' }
+          }
+        )
+      )
+    )
+
+    const candidates = await searchWikimediaCommons(
+      'Elon Musk portrait',
+      new AbortController().signal
+    )
+
+    expect(candidates[0]).toMatchObject({
+      title: 'Elon Musk portrait 2024',
+      description: 'Elon Musk portrait at a public event.',
+      provider: 'wikimedia-commons',
+      creator: 'Example Photographer',
+      license: 'CC BY-SA 4.0',
+      licenseUrl: 'https://creativecommons.org/licenses/by-sa/4.0/'
+    })
+  })
+
+  it('resolves an attributable, reusable Wikipedia lead image', async () => {
+    const fetchMock = vi.fn().mockImplementation((input: string | URL) => {
+      const url = new URL(String(input))
+      if (url.searchParams.get('prop') === 'pageimages|info') {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              query: {
+                pages: {
+                  '42': {
+                    title: 'Elon Musk',
+                    fullurl: 'https://en.wikipedia.org/wiki/Elon_Musk',
+                    pageimage: 'Elon_Musk_2021.jpg'
+                  }
+                }
+              }
+            }),
+            {
+              status: 200,
+              headers: { 'content-type': 'application/json' }
+            }
+          )
+        )
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            query: {
+              pages: {
+                '-1': {
+                  title: 'File:Elon Musk 2021.jpg',
+                  imageinfo: [
+                    {
+                      mime: 'image/jpeg',
+                      thumburl: 'https://upload.wikimedia.org/elon-musk-2021.jpg',
+                      descriptionurl:
+                        'https://commons.wikimedia.org/wiki/File:Elon_Musk_2021.jpg',
+                      extmetadata: {
+                        ImageDescription: {
+                          value: 'Elon Musk in 2021.'
+                        },
+                        Artist: { value: 'Example Photographer' },
+                        LicenseShortName: { value: 'CC BY 2.0' },
+                        LicenseUrl: {
+                          value: 'https://creativecommons.org/licenses/by/2.0/'
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' }
+          }
+        )
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const candidates = await searchWikipediaImages(
+      'Elon Musk portrait',
+      new AbortController().signal
+    )
+
+    expect(candidates[0]).toMatchObject({
+      provider: 'wikimedia-commons',
+      creator: 'Example Photographer',
+      license: 'CC BY 2.0',
+      pageUrl: 'https://en.wikipedia.org/wiki/Elon_Musk'
+    })
+    const searchUrl = new URL(String(fetchMock.mock.calls[0]?.[0]))
+    expect(searchUrl.searchParams.get('gsrsearch')).toBe('Elon Musk')
+  })
+
+  it('uses the research fallback when visual search needs page discovery', async () => {
+    const image = pngBytes(1400, 1000)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((input: string | URL) => {
+        const url = String(input)
+        if (url.includes('commons.wikimedia.org')) {
+          return Promise.resolve(new Response('', { status: 503 }))
+        }
+        if (url.includes('duckduckgo.com')) {
+          return Promise.resolve(new Response('', { status: 503 }))
+        }
+        if (url.includes('bing.com/search')) {
+          return Promise.resolve(
+            new Response(
+              `<?xml version="1.0"?><rss><channel><item>
+                <title>Elon Musk portrait source</title>
+                <link>https://93.184.215.14/portrait</link>
+                <description>Portrait and biographical context.</description>
+              </item></channel></rss>`,
+              {
+                status: 200,
+                headers: { 'content-type': 'application/rss+xml' }
+              }
+            )
+          )
+        }
+        if (url === 'https://93.184.215.14/portrait') {
+          return Promise.resolve(
+            htmlResponse(`
+              <title>Elon Musk portrait source</title>
+              <meta property="og:title" content="Elon Musk portrait">
+              <meta property="og:image" content="/portrait.png">
+            `)
+          )
+        }
+        if (url === 'https://93.184.215.14/portrait.png') {
+          return Promise.resolve(imageResponse(image, 'image/png'))
+        }
+        return Promise.resolve(new Response('', { status: 404 }))
+      })
+    )
+
+    const assets = await fetchWebAssets(
+      'Elon Musk portrait',
+      new AbortController().signal
+    )
+
+    expect(assets[0]).toMatchObject({
+      title: 'Elon Musk portrait',
+      contentType: 'image/png',
+      provider: 'web-page'
+    })
+  })
+
+  it('rejects a favicon when the request asks for a general visual', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((input: string | URL) => {
+        const url = String(input)
+        if (url.includes('commons.wikimedia.org')) {
+          return Promise.resolve(new Response('', { status: 503 }))
+        }
+        if (url.includes('en.wikipedia.org/w/api.php')) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ query: { pages: {} } }), {
+              status: 200,
+              headers: { 'content-type': 'application/json' }
+            })
+          )
+        }
+        if (url.includes('duckduckgo.com')) {
+          return Promise.resolve(
+            htmlResponse(`
+              <a class="result-link" href="//duckduckgo.com/l/?uddg=https%3A%2F%2F93.184.215.14%2Focean">Ocean surface study</a>
+              <td class="result-snippet">A page about ocean surfaces.</td>
+            `)
+          )
+        }
+        if (url === 'https://93.184.215.14/ocean') {
+          return Promise.resolve(
+            htmlResponse(`
+              <title>Ocean surface study</title>
+              <link rel="icon" sizes="48x48" href="/favicon.ico">
+            `)
+          )
+        }
+        if (url === 'https://93.184.215.14/favicon.ico') {
+          return Promise.resolve(
+            imageResponse(
+              new Uint8Array([0, 0, 1, 0, 1, 0, 48, 48, 0, 0, 1, 0, 32, 0]),
+              'image/x-icon'
+            )
+          )
+        }
+        return Promise.resolve(new Response('', { status: 404 }))
+      })
+    )
+
+    const assets = await fetchWebAssets(
+      'ocean wave texture',
+      new AbortController().signal
+    )
+
+    expect(assets).toEqual([])
+  })
+
+  it('keeps visual relevance order instead of preferring a larger file', async () => {
+    const small = pngBytes(800, 600)
+    const large = new Uint8Array(18_000)
+    large.set(pngBytes(1600, 1200))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((input: string | URL) => {
+        const url = String(input)
+        if (url === 'https://93.184.215.14/elon-visuals') {
+          return Promise.resolve(
+            htmlResponse(`
+              <title>Elon Musk portrait references</title>
+              <img src="/small.png" width="800" height="600" alt="Elon Musk portrait small">
+              <img src="/large.png" width="1600" height="1200" alt="Elon Musk portrait large">
+            `)
+          )
+        }
+        if (url === 'https://93.184.215.14/small.png') {
+          return Promise.resolve(imageResponse(small, 'image/png'))
+        }
+        if (url === 'https://93.184.215.14/large.png') {
+          return Promise.resolve(imageResponse(large, 'image/png'))
+        }
+        return Promise.resolve(new Response('', { status: 404 }))
+      })
+    )
+
+    const assets = await fetchWebAssets(
+      'Use https://93.184.215.14/elon-visuals for the Elon Musk portrait',
+      new AbortController().signal
+    )
+
+    expect(assets.map((asset) => asset.title)).toEqual([
+      'Elon Musk portrait small',
+      'Elon Musk portrait large'
+    ])
+  })
+
   it('validates and packages fetched page imagery with stable tokens', async () => {
     const image = pngBytes(1200, 800)
     const icon = new Uint8Array([0, 0, 1, 0, 1, 0, 16, 16, 0, 0, 1, 0, 32, 0])
@@ -294,7 +576,10 @@ describe('web asset extraction', () => {
           byteLength: 1200,
           width: 1200,
           height: 800,
-          dataUrl: 'data:image/jpeg;base64,abc'
+          dataUrl: 'data:image/jpeg;base64,abc',
+          creator: 'Example Photographer',
+          license: 'CC BY 4.0',
+          attribution: 'Example Photographer · CC BY 4.0'
         }
       ]
     )
@@ -303,6 +588,8 @@ describe('web asset extraction', () => {
     expect(context).toContain('mees-asset://asset-a1')
     expect(context).toContain('dimensions: 1200x800')
     expect(context).toContain('Credit the source page')
+    expect(context).toContain('creator: Example Photographer')
+    expect(context).toContain('license: CC BY 4.0')
   })
 })
 

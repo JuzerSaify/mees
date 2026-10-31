@@ -2,26 +2,17 @@ import {
   AlertCircle,
   ArrowUp,
   Check,
-  ChevronDown,
   CircleSlash2,
-  CloudDownload,
   CornerDownRight,
-  Crop,
-  Globe2,
   ImagePlus,
-  ListChecks,
   LoaderCircle,
   MessageCircleQuestion,
   MousePointer2,
-  PenLine,
   RotateCcw,
-  ScanSearch,
-  Search,
   Square,
-  WandSparkles,
   X
 } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type {
@@ -30,17 +21,16 @@ import type {
   AgentActivity,
   AgentQuestion,
   AgentReferenceImage,
-  AgentRunTelemetry,
   AgentToolComparison,
   AgentToolMetrics,
   ChatMessage,
   DesignMode,
   DesignSelection,
-  MessageStatus,
-  ResearchSource
+  MessageStatus
 } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
-import { formatBytes, formatDuration } from '../lib/format'
+import { chooseAgentStatus } from '../lib/agentStatus'
+import { formatDuration } from '../lib/format'
 import {
   MAX_REFERENCE_IMAGES,
   isSupportedReferenceImage,
@@ -72,18 +62,6 @@ interface AgentPanelProps {
   selectedTarget: DesignSelection | null
   snapshot: AppSnapshot
 }
-
-const activityIcons = {
-  research: Search,
-  fetch: CloudDownload,
-  evidence: ListChecks,
-  inspect: ScanSearch,
-  transform: Crop,
-  clarify: MessageCircleQuestion,
-  compose: WandSparkles,
-  write: PenLine,
-  review: ScanSearch
-} as const
 
 function ClarificationPopover({
   busy,
@@ -149,204 +127,39 @@ function ClarificationPopover({
   )
 }
 
-function ActivityStatusIcon({
-  activity
-}: {
-  activity: AgentActivity
-}): React.JSX.Element {
-  if (activity.status === 'running') {
-    return <LoaderCircle aria-hidden="true" className="spin" size={13} />
-  }
-  if (activity.status === 'error') {
-    return <AlertCircle aria-hidden="true" size={13} />
-  }
-  if (activity.status === 'cancelled') {
-    return <CircleSlash2 aria-hidden="true" size={13} />
-  }
-  return <Check aria-hidden="true" size={13} />
-}
-
-function ActivityItem({
-  activity,
-  run
-}: {
-  activity: AgentActivity
-  run: AgentRunView | null
-}): React.JSX.Element {
-  if (['visuals', 'plan'].includes(activity.kind as string)) {
-    return <></>
-  }
-  const Icon =
-    activityIcons[activity.kind as keyof typeof activityIcons] ?? Search
-  const hasResults = Boolean(activity.sources?.length)
-  const [expanded, setExpanded] = useState(
-    activity.status === 'running' || hasResults
-  )
-  const detail =
-    activity.kind === 'write' && activity.status === 'running' && run
-      ? `Rendering ${formatBytes(run.designBytes)}`
-      : activity.detail
-
-  useEffect(() => {
-    if (activity.status === 'running') setExpanded(true)
-  }, [activity.status])
-
-  return (
-    <div className={`agent-activity is-${activity.status}`}>
-      <span className="activity-kind-icon" aria-hidden="true">
-        <Icon size={13} />
-      </span>
-      <div className="activity-content">
-        <div className="activity-heading">
-          <span className="activity-status-icon" aria-hidden="true">
-            <ActivityStatusIcon activity={activity} />
-          </span>
-          <span className="activity-copy">
-            <span className="activity-label">{activity.label}</span>
-            {detail ? <span className="activity-detail">{detail}</span> : null}
-          </span>
-          {activity.durationMs !== undefined ? (
-            <span className="activity-duration">
-              {formatDuration(activity.durationMs)}
-            </span>
-          ) : null}
-          {hasResults ? (
-            <button
-              aria-expanded={expanded}
-              aria-label={`${expanded ? 'Hide' : 'Show'} ${activity.label.toLowerCase()} results`}
-              className="activity-disclosure"
-              onClick={() => setExpanded((value) => !value)}
-              type="button"
-            >
-              <ChevronDown
-                aria-hidden="true"
-                className={expanded ? 'is-open' : ''}
-                size={14}
-              />
-            </button>
-          ) : null}
-        </div>
-
-        {expanded && activity.sources?.length ? (
-          <div className="activity-sources" aria-label="Web sources">
-            {activity.sources.map((source) => (
-              <SourceFavicon key={source.id} source={source} />
-            ))}
-          </div>
-        ) : null}
-
-      </div>
-    </div>
-  )
-}
-
-function faviconHost(value: string): string {
-  try {
-    return new URL(value).hostname
-  } catch {
-    return ''
-  }
-}
-
-function SourceFavicon({
-  source
-}: {
-  source: ResearchSource
-}): React.JSX.Element {
-  const host = faviconHost(source.url)
-  const [attempt, setAttempt] = useState(0)
-  const sources = source.faviconUrl
-    ? [source.faviconUrl]
-    : host
-      ? [
-          `https://www.google.com/s2/favicons?sz=64&domain=${encodeURIComponent(host)}`,
-          `https://icons.duckduckgo.com/ip3/${encodeURIComponent(host)}.ico`
-        ]
-      : []
-  const icon = sources[attempt]
-  return (
-    <button
-      aria-label={`Open ${source.title} from ${source.publisher}`}
-      className="source-favicon"
-      onClick={() => void window.mees?.openExternal(source.url)}
-      title={`${source.title} - ${source.publisher}`}
-      type="button"
-    >
-      <span aria-hidden="true" className="source-favicon-fallback">
-        {host.replace(/^www\./, '').charAt(0).toUpperCase() || 'W'}
-      </span>
-      {icon ? (
-        <img
-          alt=""
-          decoding="async"
-          loading="lazy"
-          onError={() => setAttempt((value) => value + 1)}
-          referrerPolicy="no-referrer"
-          src={icon}
-        />
-      ) : (
-        <Globe2 aria-hidden="true" size={12} />
-      )}
-    </button>
-  )
-}
-
-function useLiveElapsed(startedAt: number, active: boolean): number {
+function useLiveElapsed(
+  startedAt: number,
+  active: boolean,
+  intervalMs = 1_000
+): number {
   const [now, setNow] = useState(Date.now())
 
   useEffect(() => {
     setNow(Date.now())
     if (!active) return
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000)
+    const timer = window.setInterval(() => setNow(Date.now()), intervalMs)
     return () => window.clearInterval(timer)
-  }, [active, startedAt])
+  }, [active, intervalMs, startedAt])
 
   return active ? Math.max(0, now - startedAt) : 0
 }
 
-function AgentWorkingStatus({
-  run
-}: {
-  run: AgentRunView
-}): React.JSX.Element {
-  const elapsed = useLiveElapsed(run.startedAt, true)
+const pixelDelays = Array.from({ length: 9 }, (_, index) => {
+  const row = Math.floor(index / 3)
+  const column = index % 3
+  return (column + Math.abs(row - 1)) * 90
+})
 
+function AgentPixelGrid(): React.JSX.Element {
   return (
-    <div
-      aria-live="polite"
-      className="agent-working-stack"
-      role="status"
-    >
-      <div className="agent-working-row is-done">
-        <span className="agent-working-mark" aria-hidden="true">
-          <Check size={11} />
-        </span>
-        <span>Brief received</span>
-        <span className="agent-working-elapsed">
-          {formatDuration(elapsed)}
-        </span>
-      </div>
-      <div className="agent-working-row is-current">
-        <span className="agent-working-bars" aria-hidden="true">
-          <i />
-          <i />
-          <i />
-        </span>
-        <span className="agent-working-label">
-          {run.designStarted
-            ? 'Receiving the artifact'
-            : `Sending request to ${run.modelName}`}
-        </span>
-      </div>
-      <div className="agent-working-row is-pending">
-        <span className="agent-working-pending" aria-hidden="true" />
-        <span>
-          {run.designStarted
-            ? 'Canvas is updating from the response'
-            : 'Awaiting the provider response'}
-        </span>
-      </div>
-    </div>
+    <span className="agent-pixel-grid" aria-hidden="true">
+      {pixelDelays.map((delay, index) => (
+        <i
+          key={index}
+          style={{ animationDelay: `${delay}ms` }}
+        />
+      ))}
+    </span>
   )
 }
 
@@ -403,6 +216,20 @@ function ToolMetricsSummary({
           {metrics.fetchedAssets === 1 ? 'asset' : 'assets'} fetched
         </span>
       ) : null}
+      {metrics.visualInspections ? (
+        <span>
+          {metrics.visualInspections}{' '}
+          {metrics.visualInspections === 1
+            ? 'visual check'
+            : 'visual checks'}
+        </span>
+      ) : null}
+      {metrics.reusedToolCalls ? (
+        <span>
+          {metrics.reusedToolCalls}{' '}
+          {metrics.reusedToolCalls === 1 ? 'result reused' : 'results reused'}
+        </span>
+      ) : null}
       <span>{(metrics.durationMs / 1000).toFixed(1)}s total</span>
       {metrics.parallelBatches > 0 ? (
         <span>{metrics.parallelBatches} parallel</span>
@@ -444,129 +271,72 @@ function ToolMetricsSummary({
   )
 }
 
-function TelemetrySummary({
-  telemetry
-}: {
-  telemetry?: AgentRunTelemetry
-}): React.JSX.Element | null {
-  if (!telemetry?.spans.length) return null
-  const firstTokenMs = telemetry.firstTokenAt
-    ? Math.max(
-        0,
-        new Date(telemetry.firstTokenAt).getTime() -
-          new Date(telemetry.requestStartedAt).getTime()
-      )
-    : null
-  const durationFor = (stage: AgentRunTelemetry['spans'][number]['stage']) =>
-    telemetry.spans
-      .filter(
-        (span) => span.stage === stage && span.durationMs !== undefined
-      )
-      .reduce((total, span) => total + (span.durationMs ?? 0), 0)
-  const modelMs = durationFor('model')
-  const toolMs = durationFor('tool')
-  const writeMs = durationFor('write')
-  const runtimeMs = durationFor('runtime')
-  const totalMs = telemetry.completedAt
-    ? new Date(telemetry.completedAt).getTime() -
-      new Date(telemetry.requestStartedAt).getTime()
-    : null
-
-  return (
-    <div className="run-telemetry" aria-label="Measured run timing">
-      {firstTokenMs !== null ? (
-        <span>
-          <strong>{formatDuration(firstTokenMs)}</strong> first token
-        </span>
-      ) : null}
-      {modelMs > 0 ? (
-        <span>
-          <strong>{formatDuration(modelMs)}</strong> model
-        </span>
-      ) : null}
-      {toolMs > 0 ? (
-        <span>
-          <strong>{formatDuration(toolMs)}</strong> tools
-        </span>
-      ) : null}
-      {writeMs > 0 ? (
-        <span>
-          <strong>{formatDuration(writeMs)}</strong> writing
-        </span>
-      ) : null}
-      {runtimeMs > 0 ? (
-        <span>
-          <strong>{formatDuration(runtimeMs)}</strong> browser
-        </span>
-      ) : null}
-      {totalMs !== null ? (
-        <span>
-          <strong>{formatDuration(totalMs)}</strong> total
-        </span>
-      ) : null}
-    </div>
-  )
-}
-
-function AgentWorkTimeline({
+function AgentStatusLine({
   activities,
   active,
-  comparison,
   metrics,
   run,
-  status,
-  telemetry
+  status
 }: {
   activities: AgentActivity[]
   active: boolean
-  comparison?: AgentToolComparison
   metrics?: AgentToolMetrics
   run: AgentRunView | null
   status: MessageStatus
-  telemetry?: AgentRunTelemetry
 }): React.JSX.Element | null {
   const visibleActivities = activities.filter(
     (activity) => !['visuals', 'plan'].includes(activity.kind as string)
   )
-  const panelId = useId()
-  const [expanded, setExpanded] = useState(active)
-  const elapsed = useLiveElapsed(run?.startedAt ?? 0, active && Boolean(run))
-
-  useEffect(() => {
-    setExpanded(active)
-  }, [active])
-
-  if (visibleActivities.length === 0) return null
+  const elapsed = useLiveElapsed(
+    run?.startedAt ?? 0,
+    active && Boolean(run),
+    250
+  )
 
   if (active) {
-    const activeIndex = visibleActivities.findIndex(
+    const running = visibleActivities.find(
       (activity) => activity.status === 'running'
     )
+    const activeIndex = running
+      ? visibleActivities.findIndex((activity) => activity.id === running.id)
+      : -1
+    const current = chooseAgentStatus(
+      running,
+      run?.designStarted ?? false,
+      elapsed,
+      run?.modelName
+    )
+    const step =
+      activeIndex >= 0
+        ? `Step ${activeIndex + 1}`
+        : ''
     return (
-      <section className="agent-work is-live" aria-label="Agent working steps">
-        <div className="agent-work-live-head">
-          <span>
-            <LoaderCircle aria-hidden="true" className="spin" size={12} />
-            Agent working
+      <section
+        aria-label="Agent working"
+        className="agent-status-line is-working"
+        role="status"
+      >
+        <AgentPixelGrid />
+        <span
+          className="agent-status-copy"
+          title={current.detail}
+        >
+          <span className="agent-status-label" key={current.label}>
+            {current.label}
           </span>
-          <span>
-            {activeIndex >= 0
-              ? `${activeIndex + 1} of ${visibleActivities.length} steps`
-              : `${visibleActivities.length} ${
-                  visibleActivities.length === 1 ? 'step' : 'steps'
-                }`}{' '}
-            / {formatDuration(elapsed)}
-          </span>
-        </div>
-        <div className="activity-timeline" aria-label="Agent activity">
-          {visibleActivities.map((activity) => (
-            <ActivityItem activity={activity} key={activity.id} run={run} />
-          ))}
-        </div>
+          {current.detail ? (
+            <span className="agent-status-detail">{current.detail}</span>
+          ) : null}
+        </span>
+        {step ? <span className="agent-status-step">{step}</span> : null}
+        <span className="agent-status-time">
+          {formatDuration(elapsed)}
+        </span>
       </section>
     )
   }
 
+  if (visibleActivities.length === 0) return null
   const failed = visibleActivities.some(
     (activity) => activity.status === 'error'
   )
@@ -577,11 +347,8 @@ function AgentWorkTimeline({
     ? 'Agent work stopped'
     : cancelled
       ? 'Agent work cancelled'
-      : 'Agent work'
+      : 'Agent work completed'
   const detail = [
-    `${visibleActivities.length} ${
-      visibleActivities.length === 1 ? 'step' : 'steps'
-    }`,
     metrics?.sources
       ? `${metrics.sources} ${metrics.sources === 1 ? 'source' : 'sources'}`
       : null,
@@ -593,48 +360,28 @@ function AgentWorkTimeline({
     .join(' / ')
 
   return (
-    <section className={`agent-work ${expanded ? 'is-expanded' : ''}`}>
-      <button
-        aria-label={`${title}. ${detail}. ${
-          expanded ? 'Hide' : 'Show'
-        } work details`}
-        aria-controls={panelId}
-        aria-expanded={expanded}
-        className="agent-work-summary"
-        onClick={() => setExpanded((value) => !value)}
-        type="button"
-      >
-        <span className={`agent-work-check ${failed ? 'is-error' : ''}`}>
-          {failed ? (
-            <AlertCircle aria-hidden="true" size={13} />
-          ) : (
-            <Check aria-hidden="true" size={13} />
-          )}
-        </span>
-        <span className="agent-work-summary-copy">
-          <strong>{title}</strong>
-          <small>{detail}</small>
-        </span>
-        <ChevronDown
-          aria-hidden="true"
-          className={expanded ? 'is-open' : ''}
-          size={14}
-        />
-      </button>
-      {expanded ? (
-        <div className="agent-work-panel" id={panelId}>
-          <div className="activity-timeline" aria-label="Agent activity">
-            {visibleActivities.map((activity) => (
-              <ActivityItem activity={activity} key={activity.id} run={run} />
-            ))}
-          </div>
-          <ToolMetricsSummary
-            className="agent-work-metrics"
-            comparison={comparison}
-            metrics={metrics}
-          />
-          <TelemetrySummary telemetry={telemetry} />
-        </div>
+    <section
+      aria-label={[title, detail].filter(Boolean).join('. ')}
+      className={`agent-status-line ${
+        failed
+          ? 'is-error'
+          : cancelled
+            ? 'is-cancelled'
+            : 'is-complete'
+      }`}
+    >
+      <span className="agent-status-result-icon" aria-hidden="true">
+        {failed ? (
+          <AlertCircle size={13} />
+        ) : cancelled ? (
+          <CircleSlash2 size={13} />
+        ) : (
+          <Check size={13} />
+        )}
+      </span>
+      <span className="agent-status-title">{title}</span>
+      {detail ? (
+        <span className="agent-status-meta">{detail}</span>
       ) : null}
     </section>
   )
@@ -652,9 +399,6 @@ function MessageBody({
   const isActiveRun =
     run?.assistantMessageId === message.id &&
     (run.status === 'starting' || run.status === 'streaming')
-  const hasLiveActivity = Boolean(
-    message.activities?.some((activity) => activity.status === 'running')
-  )
 
   if (message.role === 'user') {
     return (
@@ -689,15 +433,13 @@ function MessageBody({
         <span>Mees</span>
         {message.model ? <span className="message-model">{message.model}</span> : null}
       </div>
-      {message.activities?.length ? (
-        <AgentWorkTimeline
-          activities={message.activities}
+      {isActiveRun || message.activities?.length ? (
+        <AgentStatusLine
+          activities={message.activities ?? []}
           active={isActiveRun}
-          comparison={message.toolComparison}
           metrics={message.toolMetrics}
           run={run}
           status={message.status}
-          telemetry={message.telemetry}
         />
       ) : null}
       {message.content && !hideClarificationContent ? (
@@ -728,10 +470,6 @@ function MessageBody({
           comparison={message.toolComparison}
           metrics={message.toolMetrics}
         />
-      ) : null}
-
-      {isActiveRun && run && !hasLiveActivity ? (
-        <AgentWorkingStatus run={run} />
       ) : null}
 
       {message.status === 'error' ? (
@@ -943,10 +681,13 @@ export function AgentPanel({
         : designModePlaceholder
 
   return (
-    <aside className={`agent-panel ${isMobileOpen ? 'is-mobile-open' : ''}`}>
+    <aside
+      aria-labelledby="agent-panel-title"
+      className={`agent-panel ${isMobileOpen ? 'is-mobile-open' : ''}`}
+    >
       <div className="agent-header">
         <div className="agent-heading">
-          <h2>Agent</h2>
+          <h2 id="agent-panel-title">Agent</h2>
         </div>
         {onCloseMobile ? (
           <button

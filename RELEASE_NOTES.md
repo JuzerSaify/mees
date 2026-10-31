@@ -1,21 +1,25 @@
-# Mees 1.0.0
+# Mees 1.1.0
 
-Mees is a local-first desktop design agent that runs on API accounts you own.
+Mees is a local-first desktop design agent that runs on API accounts you own. This release makes the agent workflow more truthful, visually capable and reliable across all four design modes.
 
-## Included
+## Improvements
 
-- Website, logo, vector and silent motion modes.
-- OpenAI, Claude, Gemini and DeepSeek model discovery with provider-native reasoning controls.
-- A live artifact canvas, precise element refinement, project history and local exports.
-- Web research, public-page reading, licensed visual discovery, source evidence and artifact review.
-- Encrypted local API-key storage and per-user project data.
+- Added a single-line live agent status with an animated pixel wavefront, exact active-tool detail, real step position and elapsed time.
+- Expanded the model picker with strict provider ownership, current-generation filtering, provider-native reasoning effort and accurate model grouping.
+- Added Wikimedia and Wikipedia visual discovery with creator, license and attribution metadata.
+- Added multimodal inspection of up to three fetched visual candidates before generation.
+- Strengthened the agent harness with additional tool rounds, duplicate-result reuse, bounded tool output and richer run metrics.
+- Improved design variety using recent structural, palette and typography signals.
+- Extended responsive preview coverage across Website, Logo, Vector and Motion.
 
-## Windows installation
+## Fixes
 
-Download `Mees-Setup-1.0.0.exe` from this release and run it. The installer is unsigned, so Windows SmartScreen may ask you to confirm the publisher before installation.
+- Fixed the loader's missing easing token, which had invalidated the animation.
+- Fixed visual results being ordered by byte size instead of subject relevance.
+- Fixed visual discovery stopping before later usable sources.
+- Removed unrelated, fair-use and favicon-only media from general artwork results.
+- Removed stale and cross-provider models from provider menus.
+- Removed the Refine menu and its unused interaction path.
+- Fixed mobile toast placement and undersized composer controls.
 
-Automatic updates are delivered from this GitHub release feed. Keep the application installed through the Mees installer so update metadata and permissions remain intact.
-
-## Verification
-
-The release workflow verifies the source, launches the packaged application, checks the preload bridge and bundled native image tooling, validates the updater manifest, and publishes SHA-256 checksums with the installer.
+Download `Mees-Setup-1.1.0.exe` from this release. The installer is unsigned, so Windows SmartScreen may ask you to confirm the publisher before installation.

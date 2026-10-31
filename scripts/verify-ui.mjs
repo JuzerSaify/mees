@@ -39,9 +39,111 @@ await writeFile(
               name: 'GPT-5.2',
               provider: 'openai',
               supportsImages: true
+            },
+            {
+              id: 'gpt-5.2-2025-12-11',
+              name: 'GPT-5.2 snapshot',
+              provider: 'openai',
+              supportsImages: true
+            },
+            {
+              id: 'gpt-live-1',
+              name: 'GPT Live',
+              provider: 'openai',
+              supportsImages: true
+            },
+            {
+              id: 'claude-sonnet-5-5',
+              name: 'Claude Sonnet 5.5',
+              provider: 'openai',
+              supportsImages: true
+            },
+            {
+              id: 'gemini-3.8-flash',
+              name: 'Gemini 3.8 Flash',
+              provider: 'openai',
+              supportsImages: true
             }
           ],
           selectedModel: 'gpt-5.2',
+          verifiedAt: new Date().toISOString()
+        },
+        anthropic: {
+          encryptedApiKey: 'fixture-only',
+          keyHint: '...test',
+          models: [
+            {
+              id: 'claude-sonnet-5-5',
+              name: 'Claude Sonnet 5.5',
+              provider: 'anthropic',
+              supportsImages: true
+            },
+            {
+              id: 'gpt-5.2',
+              name: 'GPT-5.2',
+              provider: 'anthropic',
+              supportsImages: true
+            }
+          ],
+          selectedModel: 'claude-sonnet-5-5',
+          verifiedAt: new Date().toISOString()
+        },
+        google: {
+          encryptedApiKey: 'fixture-only',
+          keyHint: '...test',
+          models: [
+            {
+              id: 'gemini-3.8-flash',
+              name: 'Gemini 3.8 Flash',
+              provider: 'google',
+              supportsImages: true
+            },
+            {
+              id: 'gemini-3.1-flash-lite-preview',
+              name: 'Gemini 3.1 Flash Lite Preview',
+              provider: 'google',
+              supportsImages: true
+            },
+            {
+              id: 'gemini-3.1-flash-lite',
+              name: 'Gemini 3.1 Flash Lite',
+              provider: 'google',
+              supportsImages: true
+            },
+            {
+              id: 'gemma-4-31b-it',
+              name: 'Gemma 4 31B',
+              provider: 'google',
+              supportsImages: false
+            },
+            {
+              id: 'claude-sonnet-5-5',
+              name: 'Claude Sonnet 5.5',
+              provider: 'google',
+              supportsImages: true
+            }
+          ],
+          selectedModel: 'gemini-3.8-flash',
+          verifiedAt: new Date().toISOString()
+        },
+        deepseek: {
+          encryptedApiKey: 'fixture-only',
+          keyHint: '...test',
+          models: [
+            {
+              id: 'deepseek-v4-pro',
+              name: 'DeepSeek V4 Pro',
+              provider: 'deepseek',
+              supportsImages: false
+            },
+            {
+              id: 'gpt-5.2',
+              name: 'GPT-5.2',
+              provider: 'deepseek',
+              supportsImages: true
+            }
+          ],
+          selectedModel: 'deepseek-v4-pro',
           verifiedAt: new Date().toISOString()
         }
       }
@@ -338,10 +440,68 @@ try {
   await page.screenshot({
     path: join(screenshotDirectory, 'seven-upgrades-desktop.png')
   })
-  const workSummary = page.getByRole('button', { name: /Agent work\./ })
-  if ((await workSummary.count()) && (await workSummary.isEnabled())) {
-    await workSummary.click()
-    await page.waitForTimeout(250)
+  const modelTrigger = page.getByRole('button', {
+    name: /Choose model and effort/
+  })
+  await modelTrigger.click()
+  await page.waitForSelector('.model-menu')
+  await page.waitForTimeout(180)
+  await page.screenshot({
+    path: join(screenshotDirectory, 'mees-model-grouping.png')
+  })
+  const modelGroups = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('.model-group')).map((group) => ({
+      name:
+        group
+          .querySelector('.model-group-label span:first-child')
+          ?.textContent?.trim() ?? '',
+      models: Array.from(group.querySelectorAll('.model-option')).map(
+        (option) => ({
+          provider: option.getAttribute('data-model-provider'),
+          id: option.getAttribute('data-model-id')
+        })
+      )
+    }))
+  )
+  const expectedModelGroups = [
+    { name: 'OpenAI', provider: 'openai', ids: ['gpt-5.2'] },
+    {
+      name: 'Claude',
+      provider: 'anthropic',
+      ids: ['claude-sonnet-5-5']
+    },
+    {
+      name: 'Gemini',
+      provider: 'google',
+      ids: ['gemini-3.8-flash', 'gemini-3.1-flash-lite']
+    },
+    {
+      name: 'DeepSeek',
+      provider: 'deepseek',
+      ids: ['deepseek-v4-pro']
+    }
+  ]
+  if (
+    modelGroups.length !== expectedModelGroups.length ||
+    expectedModelGroups.some(({ name, provider, ids }) => {
+      const group = modelGroups.find((item) => item.name === name)
+      return (
+        !group ||
+        group.models.length !== ids.length ||
+        group.models.some(
+          (model, index) =>
+            model.provider !== provider || model.id !== ids[index]
+        )
+      )
+    })
+  ) {
+    throw new Error('Provider model groups contain stale or cross-provider models.')
+  }
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(120)
+
+  const completedStatus = page.locator('.agent-status-line.is-complete')
+  if (await completedStatus.count()) {
     await page.screenshot({
       path: join(screenshotDirectory, 'seven-upgrades-agent-detail.png')
     })
@@ -371,21 +531,22 @@ try {
         iconWidth: Math.round(iconBox?.width ?? 0),
         iconHeight: Math.round(iconBox?.height ?? 0)
       },
-      activityBorderLeft: (() => {
-        const content = document.querySelector('.activity-content')
-        return content ? getComputedStyle(content).borderLeftWidth : null
-      })(),
       agent: rect('.agent-panel'),
       sheet: rect('.workspace-sheet'),
       toolbar: rect('.canvas-toolbar'),
-      sourceFavicons: document.querySelectorAll('.source-favicon').length,
-      sourceFaviconImages: Array.from(
-        document.querySelectorAll('.source-favicon img')
-      ).map((image) => ({
-        src: image.getAttribute('src'),
-        naturalWidth: image.naturalWidth,
-        complete: image.complete
-      })),
+      agentStatus: rect('.agent-status-line'),
+      agentStatusText:
+        document.querySelector('.agent-status-line')?.textContent
+          ?.replace(/\s+/g, ' ')
+          .trim() ?? '',
+      agentStatusClickable:
+        document.querySelectorAll('.agent-status-line button').length,
+      refineButtons: Array.from(document.querySelectorAll('button')).filter(
+        (button) =>
+          /refine/i.test(
+            `${button.getAttribute('aria-label') ?? ''} ${button.textContent ?? ''}`
+          )
+      ).length,
       horizontalOverflow:
         document.documentElement.scrollWidth - window.innerWidth
     }
@@ -394,13 +555,60 @@ try {
     geometry.titlebarBrand.text ||
     geometry.titlebarBrand.ariaLabel !== 'Mees' ||
     geometry.titlebarBrand.iconWidth !== 24 ||
-    geometry.titlebarBrand.iconHeight !== 24 ||
-    (geometry.activityBorderLeft !== null &&
-      geometry.activityBorderLeft !== '0px')
+    geometry.titlebarBrand.iconHeight !== 24
   ) {
     throw new Error(
       'The app title bar or agent activity layout failed its visual contract.'
     )
+  }
+  if (
+    geometry.agentStatusClickable !== 0 ||
+    geometry.refineButtons !== 0 ||
+    !geometry.agentStatusText.includes('Agent work completed')
+  ) {
+    throw new Error(
+      'The completed agent state is clickable, missing, or the Refine control is still present.'
+    )
+  }
+  const loaderAnimation = await page.evaluate(async () => {
+    const host = document.createElement('div')
+    host.className = 'agent-pixel-grid'
+    host.style.cssText = 'position:fixed;left:-100px;top:0'
+    for (let index = 0; index < 9; index += 1) {
+      const cell = document.createElement('i')
+      const row = Math.floor(index / 3)
+      const column = index % 3
+      cell.style.animationDelay = `${(column + Math.abs(row - 1)) * 90}ms`
+      host.appendChild(cell)
+    }
+    document.body.appendChild(host)
+    await new Promise((resolve) => window.setTimeout(resolve, 260))
+    const cells = Array.from(host.querySelectorAll('i'))
+    const result = {
+      reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+      animationNames: cells.map(
+        (cell) => getComputedStyle(cell).animationName
+      ),
+      durations: cells.map(
+        (cell) => getComputedStyle(cell).animationDuration
+      ),
+      playStates: cells.flatMap((cell) =>
+        cell.getAnimations().map((animation) => animation.playState)
+      ),
+      opacities: cells.map((cell) => Number(getComputedStyle(cell).opacity))
+    }
+    host.remove()
+    return result
+  })
+  if (
+    !loaderAnimation.reducedMotion &&
+    (loaderAnimation.animationNames.some((name) => name !== 'agent-pixel-on') ||
+      loaderAnimation.playStates.some((state) => state !== 'running') ||
+      loaderAnimation.opacities.every(
+        (opacity) => Math.abs(opacity - loaderAnimation.opacities[0]) < 0.01
+      ))
+  ) {
+    throw new Error('The agent pixel loader is not animating.')
   }
 
   const review = page.getByRole('button', { name: /Open design review/i })
@@ -473,7 +681,9 @@ try {
       const box = element.getBoundingClientRect()
       return {
         x: Math.round(box.x),
+        y: Math.round(box.y),
         right: Math.round(box.right),
+        bottom: Math.round(box.bottom),
         width: Math.round(box.width),
         height: Math.round(box.height)
       }
@@ -501,13 +711,16 @@ try {
   if (await openAgent.isVisible()) await openAgent.click()
   await page.waitForTimeout(260)
   const mobileGeometry = await page.evaluate(() => {
-    const measure = (selector) => {
-      const element = document.querySelector(selector)
+    const measure = (target) => {
+      const element =
+        typeof target === 'string' ? document.querySelector(target) : target
       if (!element) return null
       const box = element.getBoundingClientRect()
       return {
         x: Math.round(box.x),
+        y: Math.round(box.y),
         right: Math.round(box.right),
+        bottom: Math.round(box.bottom),
         width: Math.round(box.width),
         height: Math.round(box.height)
       }
@@ -516,13 +729,82 @@ try {
       viewport: { width: window.innerWidth, height: window.innerHeight },
       agent: measure('.agent-panel'),
       composer: measure('.composer'),
+      toast: measure('.toast'),
+      composerTargets: Array.from(
+        document.querySelectorAll(
+          '.agent-panel .model-trigger, .agent-panel .mode-trigger, .agent-panel .send-button, .agent-panel .mobile-agent-close'
+        )
+      ).map((element) => ({
+        label:
+          element.getAttribute('aria-label') ||
+          element.textContent?.trim().replace(/\s+/g, ' ').slice(0, 70),
+        ...measure(element)
+      })),
       overflow:
         document.documentElement.scrollWidth - window.innerWidth
     }
   })
+  if (
+    mobileGeometry.composerTargets.some(
+      (target) => target.width < 34 || target.height < 34
+    )
+  ) {
+    throw new Error('A mobile composer control is below the 34px target floor.')
+  }
+  if (
+    mobileGeometry.toast &&
+    mobileGeometry.composer &&
+    mobileGeometry.toast.bottom > mobileGeometry.composer.y &&
+    mobileGeometry.toast.y < mobileGeometry.composer.bottom
+  ) {
+    throw new Error('The mobile toast overlaps the composer.')
+  }
   await page.screenshot({
     path: join(screenshotDirectory, 'mees-agent-mobile.png')
   })
+  const dismissToast = page.locator('.toast-close')
+  if (await dismissToast.isVisible()) await dismissToast.click()
+
+  const settingsButton = page
+    .getByRole('button', { name: /settings/i })
+    .first()
+  if (await settingsButton.count()) {
+    await settingsButton.click()
+    await page.waitForSelector('[role="dialog"]')
+    await page.waitForTimeout(220)
+    await page.screenshot({
+      path: join(screenshotDirectory, 'mees-settings-mobile.png')
+    })
+    const focusInside = await page.evaluate(() => {
+      const dialog = document.querySelector('[role="dialog"]')
+      return Boolean(
+        dialog &&
+          document.activeElement &&
+          dialog.contains(document.activeElement)
+      )
+    })
+    if (!focusInside) {
+      throw new Error('The mobile settings dialog did not take focus.')
+    }
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(180)
+    if (await page.locator('[role="dialog"]').isVisible()) {
+      throw new Error('Escape did not close the mobile settings dialog.')
+    }
+  }
+
+  const historyButton = page
+    .getByRole('button', { name: /saved designs/i })
+    .first()
+  if (await historyButton.count()) {
+    await historyButton.click()
+    await page.waitForSelector('[role="dialog"]')
+    await page.waitForTimeout(220)
+    await page.screenshot({
+      path: join(screenshotDirectory, 'mees-history-mobile.png')
+    })
+    await page.keyboard.press('Escape')
+  }
 
   const storedProjects = await readFile(
     join(userData, 'projects.json'),
@@ -536,18 +818,20 @@ try {
         geometry,
         narrowGeometry,
         mobileGeometry,
+        loaderAnimation,
+        modelGroups,
         messages,
         reviewStatus,
         memoryEntries: await page.locator('.memory-row').count(),
         fileCount,
         visibleCodeBlocks,
-        sourceFaviconAfterRun: await page.locator('.source-favicon').count(),
         storedProjectHasEmbeddedImages: storedProjects.includes('data:image/'),
         storedActivitySources:
           storedProject?.messages?.[1]?.activities?.[0]?.sources?.length ?? 0,
         storedAssetCount: storedAssets.length,
         screenshots: [
           'seven-upgrades-desktop.png',
+          'mees-model-grouping.png',
           'seven-upgrades-agent-detail.png',
           'seven-upgrades-review.png',
           'seven-upgrades-reference.png',
@@ -555,7 +839,9 @@ try {
           'seven-upgrades-memory.png',
           'seven-upgrades-files.png',
           'seven-upgrades-narrow.png',
-          'mees-agent-mobile.png'
+          'mees-agent-mobile.png',
+          'mees-settings-mobile.png',
+          'mees-history-mobile.png'
         ]
       },
       null,

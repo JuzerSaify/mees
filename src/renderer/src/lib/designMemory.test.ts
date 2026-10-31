@@ -127,6 +127,23 @@ describe('design memory', () => {
     ).toEqual(['Previous motion'])
   })
 
+  it('carries recent palette and type signals into the next direction', () => {
+    const previous = project('previous', 'Previous model page', repeatedFingerprint)
+    previous.audit!.palette = ['#121b24', '#ba7048', '#e8d7b7']
+    previous.audit!.fonts = ['Cormorant Garamond', 'Untitled Sans']
+
+    expect(
+      buildRecentDesignSummaries(
+        [project('current', 'Current'), previous],
+        'current'
+      )[0]
+    ).toMatchObject({
+      title: 'Previous model page',
+      palette: ['#121b24', '#ba7048', '#e8d7b7'],
+      fonts: ['Cormorant Garamond', 'Untitled Sans']
+    })
+  })
+
   it('derives a structural fingerprint from motion code', () => {
     const fingerprint = fingerprintArtifactDesign(
       `<canvas></canvas><script>

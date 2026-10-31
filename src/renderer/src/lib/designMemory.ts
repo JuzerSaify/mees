@@ -43,7 +43,20 @@ export function buildRecentDesignSummaries(
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
     .flatMap((project) => {
       const fingerprint = desktopFingerprint(project)
-      return fingerprint ? [{ title: project.title, fingerprint }] : []
+      return fingerprint
+        ? [
+            {
+              title: project.title,
+              fingerprint,
+              ...(project.audit?.palette.length
+                ? { palette: project.audit.palette.slice(0, 6) }
+                : {}),
+              ...(project.audit?.fonts.length
+                ? { fonts: project.audit.fonts.slice(0, 4) }
+                : {})
+            }
+          ]
+        : []
     })
     .slice(0, limit)
 }

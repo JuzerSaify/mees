@@ -132,7 +132,7 @@ async function prepareRecentDesignSummaries(
     projects,
     currentProjectId,
     designMode,
-    3
+    4
   )
   const summaries = await Promise.all(
     candidates.map(async (project) => {
@@ -165,7 +165,16 @@ async function prepareRecentDesignSummaries(
         }
       }
       return fingerprint
-        ? { title: project.title, fingerprint }
+        ? {
+            title: project.title,
+            fingerprint,
+            ...(project.audit?.palette.length
+              ? { palette: project.audit.palette.slice(0, 6) }
+              : {}),
+            ...(project.audit?.fonts.length
+              ? { fonts: project.audit.fonts.slice(0, 4) }
+              : {})
+          }
         : null
     })
   )
@@ -1379,13 +1388,6 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
     })
   }
 
-  function quickRefine(prompt: string): void {
-    if (!activeProject || isGenerating) return
-    void sendPrompt(prompt).catch((caught: unknown) => {
-      showToast(errorMessage(caught), 'error')
-    })
-  }
-
   function restoreVersion(versionId: string): void {
     if (!activeProject || isGenerating) return
     const version = activeProject.versions.find((item) => item.id === versionId)
@@ -1791,7 +1793,6 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
             onExport={() => void exportDesign()}
             onOpenInspector={openInspector}
             onOpenPreview={() => void openPreview()}
-            onQuickRefine={quickRefine}
             onRequestTargetEdit={requestTargetEdit}
             onRetry={() => void retryLast()}
             onSelectTarget={setSelectedTarget}

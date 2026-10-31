@@ -301,6 +301,46 @@ try {
       .filter({ hasText: modeProject.title })
       .click()
     await page.waitForTimeout(250)
+    const toolbar = await page.evaluate(() => {
+      const select = document.querySelector('.selection-trigger')
+      return {
+        viewportButtons: document.querySelectorAll(
+          '.segmented-control .segment-button'
+        ).length,
+        artifactBadge:
+          document.querySelector('.artifact-mode-badge')?.textContent
+            ?.replace(/\s+/g, ' ')
+            .trim() ?? '',
+        motionTransport: Boolean(
+          document.querySelector('.motion-transport')
+        ),
+        selectDisabled:
+          select instanceof HTMLButtonElement ? select.disabled : null,
+        refineButtons: Array.from(document.querySelectorAll('button')).filter(
+          (button) => /refine/i.test(
+            `${button.getAttribute('aria-label') ?? ''} ${button.textContent ?? ''}`
+          )
+        ).length
+      }
+    })
+    if (toolbar.refineButtons !== 0) {
+      issues.push(`${mode}: the removed Refine control is still visible`)
+    }
+    if (mode === 'website' && toolbar.viewportButtons !== 3) {
+      issues.push(`${mode}: expected three responsive preview controls`)
+    }
+    if (
+      (mode === 'logo' || mode === 'vector') &&
+      !toolbar.artifactBadge
+    ) {
+      issues.push(`${mode}: artifact-mode preview badge is missing`)
+    }
+    if (mode === 'motion' && !toolbar.motionTransport) {
+      issues.push(`${mode}: motion preview transport is missing`)
+    }
+    if (mode === 'motion' ? toolbar.selectDisabled !== true : toolbar.selectDisabled !== false) {
+      issues.push(`${mode}: element-selection support is incorrect`)
+    }
     await page
       .locator('.canvas-toolbar')
       .getByRole('button', { name: /Open design review/i })
@@ -319,7 +359,8 @@ try {
     results[Object.keys(artifacts).indexOf(mode)].localReview = {
       title,
       issueCount,
-      viewports: await page.locator('.review-viewport').count()
+      viewports: await page.locator('.review-viewport').count(),
+      toolbar
     }
   }
 

@@ -113,7 +113,9 @@ describe('assistant protocol', () => {
             background: 'dark',
             density: 'sparse',
             sectionCount: 6
-          }
+          },
+          palette: ['#121b24', '#ba7048'],
+          fonts: ['Cormorant Garamond']
         }
       ],
       now
@@ -121,7 +123,21 @@ describe('assistant protocol', () => {
 
     expect(prompt).toContain('Recent generated directions in this workspace')
     expect(prompt).toContain('hero=split; media=graphic')
+    expect(prompt).toContain('palette=#121b24, #ba7048')
+    expect(prompt).toContain('fonts=Cormorant Garamond')
     expect(prompt).toContain('materially different in at least the hero structure')
+  })
+
+  it('uses an evidence-only contract for visual inspection', () => {
+    const prompt = buildSystemPrompt({
+      currentDesign: '',
+      purpose: 'visual-inspection',
+      now
+    })
+
+    expect(prompt).toContain('candidate visual assets')
+    expect(prompt).toContain('Never describe an unrelated image as relevant')
+    expect(prompt).toContain('Do not return HTML, SVG, code, a design block')
   })
 
   it('gives measured reference data and approved memory precise constraints', () => {

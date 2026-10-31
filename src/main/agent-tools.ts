@@ -43,15 +43,32 @@ export interface AgentToolState {
     contentType: string,
     metadata: {
       title: string
+      description?: string
       pageUrl?: string
       sourceUrl?: string
       width?: number
       height?: number
       kind?: FetchedVisualAsset['kind']
       role?: FetchedVisualAsset['role']
+      provider?: FetchedVisualAsset['provider']
+      creator?: string
+      license?: string
+      licenseUrl?: string
+      attribution?: string
     }
   ) => Promise<FetchedVisualAsset>
   inspectArtifact?: (html: string) => Promise<ArtifactRuntimeReport>
+  inspectVisuals?: (
+    input: {
+      assets: Array<{
+        asset: FetchedVisualAsset
+        bytes: Buffer
+        contentType: string
+      }>
+      question: string
+    },
+    signal: AbortSignal
+  ) => Promise<string>
 }
 
 export interface AgentToolDescription {
@@ -131,7 +148,7 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
   {
     name: 'fetch_visual_assets',
     description:
-      'Find and validate real public images or website icons for website and motion work. The result includes exact mees-asset tokens that can be embedded in the final artifact. Use only when a real visual would improve the requested subject; logo and vector outputs should not embed raster assets.',
+      'Find and validate real public images or website icons with creator and license metadata. Website and motion artifacts can embed the returned token when the image matches the subject. Logo and vector artifacts may use it only for measured reference, palette, crop or vector tracing, never as an embedded raster. Use when a real subject visual would materially improve the work.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -140,6 +157,26 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
         reason: { type: 'string' }
       },
       required: ['query']
+    }
+  },
+  {
+    name: 'inspect_visual_assets',
+    description:
+      'Inspect up to three fetched or user-supplied images with the active multimodal model before using them. Returns a subject-match and composition assessment. Use this whenever the exact subject, crop or visual relevance is uncertain; do not use it for decorative images with no factual subject.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        sources: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 3,
+          items: { type: 'string' }
+        },
+        question: { type: 'string' },
+        reason: { type: 'string' }
+      },
+      required: ['sources', 'question']
     }
   },
   {
@@ -337,11 +374,17 @@ function assetSummary(asset: FetchedVisualAsset): Record<string, unknown> {
     token: asset.token,
     kind: asset.kind,
     title: asset.title,
+    description: asset.description,
     page_url: asset.pageUrl,
     source_url: asset.sourceUrl,
     content_type: asset.contentType,
     width: asset.width,
     height: asset.height,
+    provider: asset.provider,
+    creator: asset.creator,
+    license: asset.license,
+    license_url: asset.licenseUrl,
+    attribution: asset.attribution,
     ...(asset.role ? { role: asset.role } : {})
   }
 }
@@ -406,6 +449,14 @@ export function describeAgentTool(call: AgentToolCall): AgentToolDescription {
         typeof call.arguments.site === 'string'
           ? call.arguments.site.slice(0, 180)
           : 'Checking the site for its published icon'
+    }
+  }
+  if (call.name === 'inspect_visual_assets') {
+    return {
+      kind: 'inspect',
+      label: 'Checking visual candidates',
+      detail:
+        'Comparing subject, crop and visual role with the active multimodal model'
     }
   }
   if (call.name === 'inspect_artifact') {
@@ -513,11 +564,17 @@ async function storeDerivedAsset(
     bytes: Uint8Array
     contentType: string
     title: string
+    description?: string
     pageUrl: string
     sourceUrl: string
     width?: number
     height?: number
     kind?: FetchedVisualAsset['kind']
+    provider?: FetchedVisualAsset['provider']
+    creator?: string
+    license?: string
+    licenseUrl?: string
+    attribution?: string
   }
 ): Promise<FetchedVisualAsset> {
   if (!state.writeAsset) {
@@ -528,12 +585,18 @@ async function storeDerivedAsset(
     options.contentType,
     {
       title: options.title,
+      description: options.description,
       pageUrl: options.pageUrl,
       sourceUrl: options.sourceUrl,
       width: options.width,
       height: options.height,
       kind: options.kind ?? 'image',
-      role: 'derived'
+      role: 'derived',
+      provider: options.provider ?? 'derived',
+      creator: options.creator,
+      license: options.license,
+      licenseUrl: options.licenseUrl,
+      attribution: options.attribution
     }
   )
 }
@@ -634,9 +697,13 @@ export async function executeAgentTool(
         query: assetQuery,
         asset_count: assets.length,
         assets: assets.map(assetSummary),
+        reference_only:
+          state.designMode === 'logo' || state.designMode === 'vector',
         usage:
           assets.length > 0
-            ? 'Use the exact mees-asset token in the artifact and credit page_url.'
+            ? state.designMode === 'logo' || state.designMode === 'vector'
+              ? 'Inspect or measure the returned source before drawing. Do not embed the raster in a logo or vector artifact; use its subject, palette or geometry as reference only.'
+              : 'Use the exact mees-asset token in the artifact and include the returned creator and license attribution near the image.'
             : 'No accurate public visual passed validation. Do not substitute an unrelated stock image.'
       })
     }
@@ -668,6 +735,63 @@ export async function executeAgentTool(
           assets.length > 0
             ? 'Use a returned icon only to identify the named third-party site. Do not claim it as the user\'s own mark.'
             : 'No validated site icon was available.'
+      })
+    }
+  }
+
+  if (call.name === 'inspect_visual_assets') {
+    const sources = strings(call.arguments.sources, 3, 2)
+    const question =
+      typeof call.arguments.question === 'string'
+        ? call.arguments.question.trim().slice(0, 500)
+        : ''
+    if (!sources.length || !question) {
+      throw new Error(
+        'inspect_visual_assets needs up to three source tokens and a visual question.'
+      )
+    }
+    if (!state.inspectVisuals) {
+      throw new Error(
+        'Visual inspection is unavailable for the active model or provider.'
+      )
+    }
+    const inspected = await Promise.all(
+      sources.map((source) => imageSource(state, source))
+    )
+    const report = await state.inspectVisuals(
+      {
+        assets: inspected.map((item) => ({
+          asset:
+            state.assets.find((asset) => asset.token === item.token) ?? {
+              id: item.token,
+              token: item.token,
+              kind: 'image',
+              title: item.title,
+              pageUrl: item.pageUrl,
+              sourceUrl: item.sourceUrl,
+              contentType: item.input.contentType,
+              byteLength: item.input.bytes.byteLength,
+              dataUrl: item.token
+            },
+          bytes: item.input.bytes,
+          contentType: item.input.contentType
+        })),
+        question
+      },
+      signal
+    )
+    return {
+      ...description,
+      content: JSON.stringify({
+        tool: call.name,
+        question,
+        inspection: report.trim().slice(0, 8_000),
+        assets: inspected.map((item) => ({
+          token: item.token,
+          title: item.title,
+          page_url: item.pageUrl,
+          source_url: item.sourceUrl
+        }))
       })
     }
   }

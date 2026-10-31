@@ -99,6 +99,8 @@ export interface AgentToolMetrics {
   claims?: number
   conflicts?: number
   fetchedAssets?: number
+  visualInspections?: number
+  reusedToolCalls?: number
   evidenceItems: number
   durationMs: number
   firstTokenMs?: number
@@ -185,6 +187,7 @@ export interface FetchedVisualAsset {
   token: string
   kind: 'image' | 'icon'
   title: string
+  description?: string
   pageUrl: string
   sourceUrl: string
   contentType: string
@@ -193,6 +196,11 @@ export interface FetchedVisualAsset {
   height?: number
   dataUrl: string
   role?: 'asset' | 'reference' | 'screenshot' | 'derived'
+  provider?: 'web-page' | 'wikimedia-commons' | 'derived'
+  creator?: string
+  license?: string
+  licenseUrl?: string
+  attribution?: string
 }
 
 export interface EditPatch {
@@ -362,6 +370,8 @@ export interface DesignFingerprint {
 export interface RecentDesignSummary {
   title: string
   fingerprint: DesignFingerprint
+  palette?: string[]
+  fonts?: string[]
 }
 
 export interface DesignAudit {

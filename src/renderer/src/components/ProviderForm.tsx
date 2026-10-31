@@ -154,7 +154,7 @@ export function ProviderForm({
                   disabled={busy === 'model'}
                   id={`model-${provider}`}
                   onChange={(event) => void selectModel(event.target.value)}
-                  value={status.selectedModel ?? selectedModel?.id ?? ''}
+                  value={selectedModel?.id ?? ''}
                 >
                   {status.models.map((model) => (
                     <option key={model.id} value={model.id}>

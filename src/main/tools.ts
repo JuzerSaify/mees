@@ -11,11 +11,34 @@ const USER_AGENT =
   '(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 Mees/0.1'
 const SEARCH_TIMEOUT_MS = 18_000
 const ASSET_TIMEOUT_MS = 12_000
+const COMMONS_TIMEOUT_MS = 8_000
 const MAX_ASSET_BYTES = 1_750_000
+const MAX_ASSET_CACHE_ENTRIES = 24
 const assetCache = new Map<
   string,
   { expiresAt: number; assets: FetchedVisualAsset[] }
 >()
+
+function rememberAssetCache(
+  key: string,
+  assets: FetchedVisualAsset[],
+  ttlMs: number
+): void {
+  const now = Date.now()
+  for (const [entryKey, entry] of assetCache) {
+    if (entry.expiresAt <= now) assetCache.delete(entryKey)
+  }
+  assetCache.delete(key)
+  assetCache.set(key, {
+    expiresAt: now + ttlMs,
+    assets
+  })
+  while (assetCache.size > MAX_ASSET_CACHE_ENTRIES) {
+    const oldest = assetCache.keys().next().value
+    if (!oldest) break
+    assetCache.delete(oldest)
+  }
+}
 
 function decodeEntities(value: string): string {
   return value
@@ -200,11 +223,17 @@ function attributeValue(
 interface PageAssetCandidate {
   kind: 'image' | 'icon'
   title: string
+  description?: string
   url: string
   pageUrl: string
   pageTitle: string
   priority: number
   order: number
+  provider?: FetchedVisualAsset['provider']
+  creator?: string
+  license?: string
+  licenseUrl?: string
+  attribution?: string
 }
 
 function resolvePublicAssetUrl(
@@ -674,20 +703,318 @@ function assetScore(
   pageIndex: number
 ): number {
   const tokens = queryTokens(
-    `${query} ${candidate.title} ${candidate.pageTitle}`
+    `${focusVisualQuery(query)} ${candidate.title} ${candidate.pageTitle} ${candidate.description ?? ''}`
   )
-  const sourceText = `${candidate.title} ${candidate.pageTitle}`.toLocaleLowerCase(
-    'en'
-  )
-  const queryWords = queryTokens(query)
+  const sourceText =
+    `${candidate.title} ${candidate.pageTitle} ${candidate.description ?? ''}`.toLocaleLowerCase(
+      'en'
+    )
+  const queryWords = visualQueryTokens(query)
   const overlaps = queryWords.filter((word) => sourceText.includes(word)).length
+  const focusedQuery = focusVisualQuery(query)
+    .toLocaleLowerCase('en')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+  const pageTitle = candidate.pageTitle
+    .toLocaleLowerCase('en')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+  const subjectBoost =
+    focusedQuery.length === 0
+      ? 0
+      : pageTitle === focusedQuery
+        ? 30
+        : pageTitle.startsWith(`${focusedQuery} `)
+          ? 18
+          : pageTitle.includes(` ${focusedQuery} `)
+            ? 4
+            : 0
   return (
     (candidate.kind === 'image' ? 30 : 10) -
-    candidate.priority -
+    candidate.priority * 2 -
     pageIndex * 4 +
     overlaps * 8 +
-    Math.min(8, tokens.length)
+    subjectBoost +
+    Math.min(8, tokens.length) +
+    (candidate.provider === 'wikimedia-commons' ? 4 : 0) +
+    (candidate.license ? 2 : 0)
   )
+}
+
+function commonsMetadataText(value: unknown): string {
+  if (!value || typeof value !== 'object') return ''
+  const record = value as Record<string, unknown>
+  return typeof record.value === 'string' ? htmlToText(record.value) : ''
+}
+
+function isSupportedCommonsMime(value: string): boolean {
+  return /^image\/(?:jpeg|png|webp|gif|avif|svg\+xml)$/i.test(value)
+}
+
+export async function searchWikimediaCommons(
+  query: string,
+  signal: AbortSignal
+): Promise<PageAssetCandidate[]> {
+  const normalized = focusVisualQuery(query)
+  if (normalized.length < 3) return []
+  const endpoint = new URL('https://commons.wikimedia.org/w/api.php')
+  endpoint.search = new URLSearchParams({
+    action: 'query',
+    generator: 'search',
+    gsrsearch: normalized,
+    gsrnamespace: '6',
+    gsrlimit: '8',
+    prop: 'imageinfo',
+    iiprop: 'url|size|mime|extmetadata',
+    iiurlwidth: '1600',
+    format: 'json',
+    origin: '*'
+  }).toString()
+
+  const response = await fetch(endpoint, {
+    signal: AbortSignal.any([
+      signal,
+      AbortSignal.timeout(COMMONS_TIMEOUT_MS)
+    ]),
+    headers: {
+      Accept: 'application/json',
+      'User-Agent': USER_AGENT
+    }
+  })
+  if (!response.ok) return []
+  const payload = (await response.json()) as JsonRecord
+  const responseQuery =
+    payload.query && typeof payload.query === 'object'
+      ? (payload.query as JsonRecord)
+      : {}
+  const pages =
+    responseQuery.pages && typeof responseQuery.pages === 'object'
+      ? Object.values(responseQuery.pages as JsonRecord)
+      : []
+  const candidates: PageAssetCandidate[] = []
+  const seen = new Set<string>()
+
+  for (const rawPage of pages) {
+    if (!rawPage || typeof rawPage !== 'object') continue
+    const page = rawPage as JsonRecord
+    const info = Array.isArray(page.imageinfo)
+      ? (page.imageinfo[0] as JsonRecord | undefined)
+      : undefined
+    if (!info) continue
+    const mime = typeof info.mime === 'string' ? info.mime : ''
+    if (!isSupportedCommonsMime(mime)) continue
+    const source =
+      typeof info.thumburl === 'string'
+        ? info.thumburl
+        : typeof info.url === 'string'
+          ? info.url
+          : ''
+    const pageUrl =
+      typeof info.descriptionurl === 'string'
+        ? info.descriptionurl
+        : source
+    if (!source || !pageUrl || seen.has(source)) continue
+    const metadata =
+      info.extmetadata && typeof info.extmetadata === 'object'
+        ? (info.extmetadata as JsonRecord)
+        : {}
+    const title =
+      typeof page.title === 'string'
+        ? page.title.replace(/^File:/i, '').replace(/\.[^.]+$/, '')
+        : 'Commons media'
+    const description = commonsMetadataText(metadata.ImageDescription)
+    const creator = commonsMetadataText(metadata.Artist)
+    const license = commonsMetadataText(metadata.LicenseShortName)
+    if (/\b(?:fair use|non-free|all rights reserved)\b/i.test(license)) {
+      continue
+    }
+    const licenseUrl = commonsMetadataText(metadata.LicenseUrl)
+    const credit = commonsMetadataText(metadata.Credit)
+    const attribution = [creator, license, credit]
+      .filter((value, index, values) => value && values.indexOf(value) === index)
+      .join(' · ')
+    seen.add(source)
+    candidates.push({
+      kind: 'image',
+      title: htmlToText(title).slice(0, 180),
+      description: description.slice(0, 320),
+      url: source,
+      pageUrl,
+      pageTitle: htmlToText(title).slice(0, 180),
+      priority: candidates.length,
+      order: candidates.length,
+      provider: 'wikimedia-commons',
+      creator: creator.slice(0, 180),
+      license: license.slice(0, 120),
+      licenseUrl: licenseUrl.slice(0, 4_500),
+      attribution: attribution.slice(0, 360)
+    })
+  }
+  return candidates
+}
+
+export async function searchWikipediaImages(
+  query: string,
+  signal: AbortSignal
+): Promise<PageAssetCandidate[]> {
+  const normalized = focusVisualQuery(query)
+  if (normalized.length < 3) return []
+  const searchEndpoint = new URL('https://en.wikipedia.org/w/api.php')
+  searchEndpoint.search = new URLSearchParams({
+    action: 'query',
+    generator: 'search',
+    gsrsearch: normalized,
+    gsrlimit: '8',
+    prop: 'pageimages|info',
+    piprop: 'thumbnail|name',
+    pithumbsize: '1600',
+    inprop: 'url',
+    format: 'json',
+    origin: '*'
+  }).toString()
+  const searchResponse = await fetch(searchEndpoint, {
+    signal: AbortSignal.any([
+      signal,
+      AbortSignal.timeout(COMMONS_TIMEOUT_MS)
+    ]),
+    headers: {
+      Accept: 'application/json',
+      'User-Agent': USER_AGENT
+    }
+  })
+  if (!searchResponse.ok) return []
+  const searchPayload = (await searchResponse.json()) as JsonRecord
+  const searchQuery =
+    searchPayload.query && typeof searchPayload.query === 'object'
+      ? (searchPayload.query as JsonRecord)
+      : {}
+  const pages =
+    searchQuery.pages && typeof searchQuery.pages === 'object'
+      ? Object.values(searchQuery.pages as JsonRecord)
+      : []
+  const pageCandidates = pages.flatMap((rawPage, index) => {
+    if (!rawPage || typeof rawPage !== 'object') return []
+    const page = rawPage as JsonRecord
+    const fileTitle =
+      typeof page.pageimage === 'string' ? page.pageimage.trim() : ''
+    if (!fileTitle) return []
+    return [
+      {
+        articleTitle:
+          typeof page.title === 'string' ? page.title : fileTitle,
+        articleUrl:
+          typeof page.fullurl === 'string'
+            ? page.fullurl
+            : `https://en.wikipedia.org/wiki/${encodeURIComponent(
+                String(page.title ?? '').replace(/\s+/g, '_')
+              )}`,
+        fileTitle: fileTitle.replace(/^File:/i, ''),
+        index
+      }
+    ]
+  })
+  if (pageCandidates.length === 0) return []
+
+  const infoEndpoint = new URL('https://en.wikipedia.org/w/api.php')
+  infoEndpoint.search = new URLSearchParams({
+    action: 'query',
+    titles: pageCandidates
+      .map((candidate) => `File:${candidate.fileTitle}`)
+      .join('|'),
+    prop: 'imageinfo',
+    iiprop: 'url|size|mime|extmetadata',
+    iiurlwidth: '1600',
+    format: 'json',
+    origin: '*'
+  }).toString()
+  const infoResponse = await fetch(infoEndpoint, {
+    signal: AbortSignal.any([
+      signal,
+      AbortSignal.timeout(COMMONS_TIMEOUT_MS)
+    ]),
+    headers: {
+      Accept: 'application/json',
+      'User-Agent': USER_AGENT
+    }
+  })
+  if (!infoResponse.ok) return []
+  const infoPayload = (await infoResponse.json()) as JsonRecord
+  const infoQuery =
+    infoPayload.query && typeof infoPayload.query === 'object'
+      ? (infoPayload.query as JsonRecord)
+      : {}
+  const infoPages =
+    infoQuery.pages && typeof infoQuery.pages === 'object'
+      ? Object.values(infoQuery.pages as JsonRecord)
+      : []
+  const infoByTitle = new Map<string, JsonRecord>()
+  for (const rawPage of infoPages) {
+    if (!rawPage || typeof rawPage !== 'object') continue
+    const page = rawPage as JsonRecord
+    const title = typeof page.title === 'string' ? page.title : ''
+    const info = Array.isArray(page.imageinfo)
+      ? (page.imageinfo[0] as JsonRecord | undefined)
+      : undefined
+    if (title && info) {
+      infoByTitle.set(title.replace(/_/g, ' ').toLocaleLowerCase('en'), info)
+    }
+  }
+
+  return pageCandidates.flatMap((candidate) => {
+    const info = infoByTitle.get(
+      `File:${candidate.fileTitle}`
+        .replace(/_/g, ' ')
+        .toLocaleLowerCase('en')
+    )
+    if (!info) return []
+    const mime = typeof info.mime === 'string' ? info.mime : ''
+    if (!isSupportedCommonsMime(mime)) return []
+    const source =
+      typeof info.thumburl === 'string'
+        ? info.thumburl
+        : typeof info.url === 'string'
+          ? info.url
+          : ''
+    if (!source) return []
+    const metadata =
+      info.extmetadata && typeof info.extmetadata === 'object'
+        ? (info.extmetadata as JsonRecord)
+        : {}
+    const license = commonsMetadataText(metadata.LicenseShortName)
+    if (
+      !license ||
+      /\b(?:fair use|non-free|all rights reserved)\b/i.test(license)
+    ) {
+      return []
+    }
+    const description = commonsMetadataText(metadata.ImageDescription)
+    const creator = commonsMetadataText(metadata.Artist)
+    const licenseUrl = commonsMetadataText(metadata.LicenseUrl)
+    const credit = commonsMetadataText(metadata.Credit)
+    const attribution = [creator, license, credit]
+      .filter((value, index, values) => value && values.indexOf(value) === index)
+      .join(' · ')
+    return [
+      {
+        kind: 'image' as const,
+        title: `${candidate.articleTitle} · ${candidate.fileTitle.replace(
+          /\.[^.]+$/,
+          ''
+        )}`.slice(0, 180),
+        description: description.slice(0, 320),
+        url: source,
+        pageUrl: candidate.articleUrl,
+        pageTitle: candidate.articleTitle,
+        priority: candidate.index,
+        order: candidate.index,
+        provider: 'wikimedia-commons' as const,
+        creator: creator.slice(0, 180),
+        license: license.slice(0, 120),
+        licenseUrl: licenseUrl.slice(0, 4_500),
+        attribution: attribution.slice(0, 360)
+      }
+    ]
+  })
 }
 
 function unwrapDuckDuckGoUrl(value: string): string {
@@ -784,6 +1111,38 @@ export function normalizeToolQuery(value: string): string {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 220)
+}
+
+function focusVisualQuery(value: string): string {
+  const normalized = normalizeToolQuery(value)
+  const focused = normalized
+    .replace(
+      /\b(?:stock\s+(?:photos?|images?)|royalty[- ]free|free\s+(?:photos?|images?)|high[- ]resolution|close[- ]?up|textures?|backgrounds?|wallpapers?|photos?|photographs?|pictures?|images?|visuals?|editorial|portraits?|headshots?)\b/gi,
+      ' '
+    )
+    .replace(/\s+/g, ' ')
+    .trim()
+  return queryTokens(focused).length > 0 ? focused : normalized
+}
+
+function visualQueryTokens(value: string): string[] {
+  return queryTokens(focusVisualQuery(value))
+}
+
+function candidateMatchesVisualQuery(
+  candidate: PageAssetCandidate,
+  query: string
+): boolean {
+  const words = visualQueryTokens(query)
+  if (words.length === 0) return true
+  const text =
+    `${candidate.title} ${candidate.pageTitle} ${candidate.description ?? ''}`.toLocaleLowerCase(
+      'en'
+    )
+  const head = words.at(-1)
+  if (!head || !text.includes(head)) return false
+  const overlaps = words.filter((word) => text.includes(word)).length
+  return overlaps >= 1
 }
 
 async function searchDuckDuckGo(
@@ -1105,12 +1464,33 @@ export async function fetchWebAssets(
   if (cached && cached.expiresAt > Date.now()) {
     return cached.assets
   }
+  if (cached) assetCache.delete(cacheKey)
 
   const explicitUrls = extractWebUrls(query)
+  const iconRequested = /\b(?:icon|logo|favicon|symbol|mark|brand)\b/i.test(
+    query
+  )
   const candidateGroups: PageAssetCandidate[][] = []
+  const commonsTask =
+    explicitUrls.length === 0
+      ? searchWikimediaCommons(query, signal).catch(() => [])
+      : Promise.resolve([] as PageAssetCandidate[])
+  const wikipediaTask =
+    explicitUrls.length === 0
+      ? searchWikipediaImages(query, signal).catch(() => [])
+      : Promise.resolve([] as PageAssetCandidate[])
 
-  for (const url of explicitUrls.slice(0, 3)) {
-    candidateGroups.push(await assetCandidatesForUrl(url, signal))
+  if (explicitUrls.length > 0) {
+    const explicitGroups = await Promise.allSettled(
+      explicitUrls
+        .slice(0, 3)
+        .map((url) => assetCandidatesForUrl(url, signal))
+    )
+    candidateGroups.push(
+      ...explicitGroups.flatMap((group) =>
+        group.status === 'fulfilled' ? [group.value] : []
+      )
+    )
     if (signal.aborted) {
       throw new DOMException('Asset fetch cancelled', 'AbortError')
     }
@@ -1118,25 +1498,55 @@ export async function fetchWebAssets(
 
   if (explicitUrls.length === 0 || candidateGroups.flat().length === 0) {
     try {
-      const searchResults = await searchDuckDuckGo(query, signal)
+      const searchResults = await researchWeb(query, signal)
       const pages = searchResults
         .filter(
           (source) =>
             !explicitUrls.some((explicit) => explicit === source.url)
         )
-        .slice(0, 3)
-      for (const page of pages) {
-        candidateGroups.push(await assetCandidatesForUrl(page.url, signal))
-        if (signal.aborted) {
-          throw new DOMException('Asset fetch cancelled', 'AbortError')
-        }
+        .slice(0, 6)
+      const pageGroups = await Promise.allSettled(
+        pages.map((page) => assetCandidatesForUrl(page.url, signal))
+      )
+      candidateGroups.push(
+        ...pageGroups.flatMap((group) =>
+          group.status === 'fulfilled' ? [group.value] : []
+        )
+      )
+      if (signal.aborted) {
+        throw new DOMException('Asset fetch cancelled', 'AbortError')
       }
     } catch (error) {
       if (signal.aborted) throw error
     }
   }
+  if (explicitUrls.length === 0) {
+    const supplementalGroups = await Promise.all([
+      commonsTask,
+      wikipediaTask
+    ])
+    candidateGroups.push(
+      ...supplementalGroups.filter((group) => group.length > 0)
+    )
+  }
 
-  const flattened = candidateGroups.flat()
+  const flattened = candidateGroups
+    .flat()
+    .filter(
+      (candidate) =>
+        candidate.kind === 'icon' ||
+        explicitUrls.length > 0 ||
+        candidateMatchesVisualQuery(candidate, query)
+    )
+    .filter(
+      (candidate) =>
+        candidate.kind === 'icon' ||
+        explicitUrls.length > 0 ||
+        iconRequested ||
+        !/\b(?:logo|favicon|wordmark|icon|symbol)\b/i.test(
+          `${candidate.title} ${candidate.description ?? ''}`
+        )
+    )
   const seen = new Set<string>()
   const rankedAll = flattened
     .filter((candidate) => {
@@ -1144,9 +1554,12 @@ export async function fetchWebAssets(
       seen.add(candidate.url)
       return true
     })
-    .map((candidate, index) => ({
-      candidate,
-      score: assetScore(candidate, query, Math.floor(index / 4))
+    .map((candidate) => ({
+      candidate: {
+        ...candidate,
+        provider: candidate.provider ?? 'web-page'
+      },
+      score: assetScore(candidate, query, 0)
     }))
     .sort((left, right) => right.score - left.score)
   const ranked = [
@@ -1182,13 +1595,19 @@ export async function fetchWebAssets(
         token: `mees-asset://${id}`,
         kind: candidate.kind,
         title: candidate.title,
+        description: candidate.description,
         pageUrl: candidate.pageUrl,
         sourceUrl: candidate.url,
         contentType: asset.contentType,
         byteLength: asset.bytes.byteLength,
         width: asset.width,
         height: asset.height,
-        dataUrl: dataUrlForAsset(asset.contentType, asset.bytes)
+        dataUrl: dataUrlForAsset(asset.contentType, asset.bytes),
+        provider: candidate.provider,
+        creator: candidate.creator,
+        license: candidate.license,
+        licenseUrl: candidate.licenseUrl,
+        attribution: candidate.attribution
       } satisfies FetchedVisualAsset
     })
   )
@@ -1196,13 +1615,9 @@ export async function fetchWebAssets(
   const successful = fetched.flatMap((result) =>
     result.status === 'fulfilled' ? [result.value] : []
   )
-  const iconRequested = /\b(?:icon|logo|favicon|symbol|mark|brand)\b/i.test(
-    query
-  )
   const imageFamilies = new Set<string>()
   const images = successful
     .filter((asset) => asset.kind === 'image')
-    .sort((left, right) => right.byteLength - left.byteLength)
     .filter((asset) => {
       const family = assetFamilyKey(asset.sourceUrl)
       if (imageFamilies.has(family)) return false
@@ -1212,14 +1627,15 @@ export async function fetchWebAssets(
   const icons = successful.filter((asset) => asset.kind === 'icon')
   const selected = iconRequested
     ? [...icons.slice(0, 1), ...images.slice(0, 3)]
-    : [...images.slice(0, 3), ...icons.slice(0, 1)]
+    : explicitUrls.length > 0
+      ? [...images.slice(0, 3), ...icons.slice(0, 1)]
+      : images.slice(0, 4)
   const result = selected.slice(0, 4)
-  if (result.length > 0) {
-    assetCache.set(cacheKey, {
-      expiresAt: Date.now() + 10 * 60_000,
-      assets: result
-    })
-  }
+  rememberAssetCache(
+    cacheKey,
+    result,
+    result.length > 0 ? 10 * 60_000 : 90_000
+  )
   return result
 }
 
@@ -1252,6 +1668,14 @@ export function buildExternalContext(
           `${index + 1}. ${asset.kind}: ${asset.title}; page: ${asset.pageUrl}; source: ${asset.sourceUrl}; type: ${asset.contentType}; bytes: ${asset.byteLength}${
             asset.width && asset.height
               ? `; dimensions: ${asset.width}x${asset.height}`
+              : ''
+          }${asset.description ? `; description: ${asset.description}` : ''}${
+            asset.creator ? `; creator: ${asset.creator}` : ''
+          }${asset.license ? `; license: ${asset.license}` : ''}${
+            asset.licenseUrl ? `; license URL: ${asset.licenseUrl}` : ''
+          }${
+            asset.attribution
+              ? `; attribution: ${asset.attribution}`
               : ''
           }; embed URL: ${asset.token}. Use this exact token in the generated HTML.`
       )

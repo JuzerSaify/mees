@@ -24,6 +24,7 @@ describe('agent tools', () => {
       'read_web_pages',
       'read_urls',
       'fetch_visual_assets',
+      'inspect_visual_assets',
       'resolve_site_icon',
       'inspect_artifact',
       'evaluate_evidence',
@@ -178,6 +179,51 @@ describe('agent tools', () => {
     )
     expect(result.content).toContain('averageLuminance')
     expect(result.content).toContain('colors')
+  })
+
+  it('returns a visual evidence report without leaking image bytes into chat', async () => {
+    const token = `mees-asset://asset/${'c'.repeat(64)}.png`
+    const bytes = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      'base64'
+    )
+    let inspectedQuestion = ''
+    const result = await executeAgentTool(
+      {
+        id: 'inspect-visual-1',
+        name: 'inspect_visual_assets',
+        arguments: {
+          sources: [token],
+          question: 'Does this image show the requested person?'
+        }
+      },
+      {
+        sources: [],
+        assets: [
+          {
+            id: 'candidate',
+            token,
+            kind: 'image',
+            title: 'Candidate portrait',
+            pageUrl: 'https://example.com/image',
+            sourceUrl: 'https://example.com/image.png',
+            contentType: 'image/png',
+            byteLength: bytes.byteLength,
+            dataUrl: token
+          }
+        ],
+        readAsset: async () => ({ bytes, contentType: 'image/png' }),
+        inspectVisuals: async (input) => {
+          inspectedQuestion = input.question
+          return 'Usable: the portrait matches the requested subject. Reject: none.'
+        }
+      },
+      new AbortController().signal
+    )
+
+    expect(inspectedQuestion).toContain('requested person')
+    expect(result.content).toContain('the portrait matches')
+    expect(result.content).not.toContain(bytes.toString('base64'))
   })
 
   it('surfaces conflicting figures instead of flattening them into one claim', async () => {

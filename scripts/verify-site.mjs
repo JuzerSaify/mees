@@ -31,7 +31,7 @@ const server = createServer(async (request, response) => {
           stars: 1,
           downloads: 2,
           downloadUrl:
-            'https://github.com/JuzerSaify/mees/releases/download/v1.0.0/Mees-Setup-1.0.0.exe'
+            'https://github.com/JuzerSaify/mees/releases/download/v1.1.0/Mees-Setup-1.1.0.exe'
         })
       )
       return

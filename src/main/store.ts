@@ -117,7 +117,10 @@ function sanitizeStoredSettings(value: unknown): StoredSettings {
     providers[providerId] = {
       encryptedApiKey: provider.encryptedApiKey,
       keyHint: typeof provider.keyHint === 'string' ? provider.keyHint : 'stored key',
-      models: provider.models as ModelInfo[],
+      models: (provider.models as ModelInfo[]).map((model) => ({
+        ...model,
+        provider: providerId
+      })),
       selectedModel:
         typeof provider.selectedModel === 'string' ? provider.selectedModel : undefined,
       verifiedAt:
@@ -490,12 +493,17 @@ export class MeesStore {
     return PROVIDER_IDS.map((providerId) => {
       const stored = this.settings.providers[providerId]
       const models = filterModelCatalog(providerId, stored?.models ?? [])
+      const selectedModel =
+        stored?.selectedModel &&
+        models.some((model) => model.id === stored.selectedModel)
+          ? stored.selectedModel
+          : models[0]?.id
       return {
         provider: providerId,
         connected: Boolean(stored) && models.length > 0,
         keyHint: stored?.keyHint,
         models,
-        selectedModel: stored?.selectedModel,
+        selectedModel,
         verifiedAt: stored?.verifiedAt
       }
     })

@@ -41,7 +41,8 @@ import {
 import {
   listModels,
   runAgentTurn,
-  type AgentConversationMessage
+  type AgentConversationMessage,
+  type AgentToolCall
 } from './providers'
 import { MeesStore } from './store'
 import { compactAgentHistory } from './context'
@@ -53,7 +54,8 @@ import {
 import {
   AGENT_TOOLS,
   describeAgentTool,
-  executeAgentTool
+  executeAgentTool,
+  type AgentToolExecution
 } from './agent-tools'
 import {
   ASSET_PROTOCOL,
@@ -61,6 +63,7 @@ import {
   isAssetUrl,
   type AssetStore
 } from './asset-store'
+import { optimizeAsset } from './agent-media'
 import { captureArtifactRuntime } from './artifact-runtime'
 import { attachSourceIcons } from './source-icons'
 import { migrateLegacyUserData } from './user-data-migration'
@@ -77,6 +80,21 @@ const currentDirectory = fileURLToPath(new URL('.', import.meta.url))
 const isDevelopment = Boolean(process.env.ELECTRON_RENDERER_URL)
 const hasIsolatedUserData = !app.isPackaged && Boolean(process.env.MEES_USER_DATA_DIR)
 const legacyUserDataFolder = 'kern'
+const MAX_AGENT_TOOL_STEPS = 24
+const MAX_TOOL_RESULT_CHARS = 28_000
+const REUSABLE_AGENT_TOOLS = new Set([
+  'search_web',
+  'read_web_pages',
+  'read_urls',
+  'fetch_visual_assets',
+  'inspect_visual_assets',
+  'resolve_site_icon',
+  'evaluate_evidence',
+  'crop_asset',
+  'optimize_asset',
+  'extract_palette',
+  'vectorize_asset'
+])
 
 let mainWindow: BrowserWindow | null = null
 let store: MeesStore
@@ -354,6 +372,21 @@ function combineUsage(...usages: Array<TokenUsage | undefined>): TokenUsage | un
     inputTokens: inputTokens || undefined,
     outputTokens: outputTokens || undefined
   }
+}
+
+function boundToolResult(content: string): string {
+  if (content.length <= MAX_TOOL_RESULT_CHARS) return content
+  const tailLength = 2_000
+  const headLength = MAX_TOOL_RESULT_CHARS - tailLength
+  return [
+    content.slice(0, headLength),
+    `\n[Tool result shortened after ${headLength} characters. Preserve the source IDs and asset tokens above; request a narrower follow-up if a specific omitted field is required.]\n`,
+    content.slice(-tailLength)
+  ].join('')
+}
+
+function reusableToolKey(call: AgentToolCall): string {
+  return `${call.name}:${JSON.stringify(call.arguments)}`
 }
 
 function mergeResearchSources(
@@ -1040,6 +1073,17 @@ function registerIpc(): void {
           if (token) referenceAssets[image.id] = token
         }
       }
+      const harnessStartedAt = Date.now()
+      const harnessStats = {
+        rounds: 0,
+        parallelBatches: 0,
+        queries: 0,
+        toolCalls: 0,
+        pagesRead: 0,
+        visualInspections: 0,
+        reusedToolCalls: 0
+      }
+      let visualInspectionUsage: TokenUsage | undefined
       const toolState = {
         sources: [] as ResearchSource[],
         assets: [] as FetchedVisualAsset[],
@@ -1060,12 +1104,18 @@ function registerIpc(): void {
           contentType: string,
           metadata: {
             title: string
+            description?: string
             pageUrl?: string
             sourceUrl?: string
             width?: number
             height?: number
             kind?: FetchedVisualAsset['kind']
             role?: FetchedVisualAsset['role']
+            provider?: FetchedVisualAsset['provider']
+            creator?: string
+            license?: string
+            licenseUrl?: string
+            attribution?: string
           }
         ): Promise<FetchedVisualAsset> => {
           const stored = await store.assetStore.saveBytes(
@@ -1079,6 +1129,7 @@ function registerIpc(): void {
             token: stored.token,
             kind: metadata.kind ?? 'image',
             title: metadata.title.slice(0, 180),
+            description: metadata.description?.slice(0, 320),
             pageUrl: metadata.pageUrl ?? stored.token,
             sourceUrl: metadata.sourceUrl ?? stored.token,
             contentType: stored.contentType,
@@ -1086,7 +1137,12 @@ function registerIpc(): void {
             width: metadata.width,
             height: metadata.height,
             dataUrl: stored.token,
-            role: metadata.role ?? 'derived'
+            role: metadata.role ?? 'derived',
+            provider: metadata.provider ?? 'derived',
+            creator: metadata.creator?.slice(0, 180),
+            license: metadata.license?.slice(0, 120),
+            licenseUrl: metadata.licenseUrl?.slice(0, 4_500),
+            attribution: metadata.attribution?.slice(0, 360)
           }
         },
         inspectArtifact: (html: string) =>
@@ -1094,15 +1150,77 @@ function registerIpc(): void {
             html,
             inputRequest.designMode,
             store.assetStore
-          )
-      }
-      const harnessStartedAt = Date.now()
-      const harnessStats = {
-        rounds: 0,
-        parallelBatches: 0,
-        queries: 0,
-        toolCalls: 0,
-        pagesRead: 0
+          ),
+        inspectVisuals:
+          modelInfo.supportsImages === false
+            ? undefined
+            : async (
+                input: {
+                  assets: Array<{
+                    asset: FetchedVisualAsset
+                    bytes: Buffer
+                    contentType: string
+                  }>
+                  question: string
+                },
+                inspectionSignal: AbortSignal
+              ): Promise<string> => {
+                const images = await Promise.all(
+                  input.assets.slice(0, 3).map(async (item, index) => {
+                    const optimized = await optimizeAsset(
+                      {
+                        bytes: item.bytes,
+                        contentType: item.contentType
+                      },
+                      { maxWidth: 1_024, quality: 78 }
+                    )
+                    return {
+                      id: `visual-candidate-${index + 1}`,
+                      name: item.asset.title.slice(0, 120),
+                      mimeType: 'image/webp' as const,
+                      width: optimized.width,
+                      height: optimized.height,
+                      dataUrl: `data:image/webp;base64,${optimized.bytes.toString('base64')}`
+                    }
+                  })
+                )
+                const inspection = await runAgentTurn({
+                  provider: request.provider,
+                  model: request.model,
+                  effort: request.effort,
+                  apiKey,
+                  currentDesign: '',
+                  designMode: inputRequest.designMode,
+                  purpose: 'visual-inspection',
+                  messages: [
+                    {
+                      role: 'user',
+                      content: [
+                        `Visual decision: ${input.question}`,
+                        'Candidate metadata:',
+                        ...input.assets.slice(0, 3).map(
+                          (item, index) =>
+                            `${index + 1}. ${item.asset.title}; source ${item.asset.pageUrl}; ${
+                              item.asset.width && item.asset.height
+                                ? `${item.asset.width}x${item.asset.height}`
+                                : 'dimensions measured from the fetched file'
+                            }${item.asset.description ? `; ${item.asset.description}` : ''}`
+                        )
+                      ].join('\n'),
+                      referenceImages: images
+                    }
+                  ],
+                  tools: [],
+                  signal: inspectionSignal,
+                  onDelta: () => undefined
+                })
+                visualInspectionUsage = combineUsage(
+                  visualInspectionUsage,
+                  inspection.usage
+                )
+                harnessStats.visualInspections += images.length
+                return inspection.text.trim()
+              }
       }
       const telemetry: AgentRunTelemetry = {
         requestStartedAt: new Date(harnessStartedAt).toISOString(),
@@ -1113,6 +1231,11 @@ function registerIpc(): void {
       let writeFinished = false
       let completed = false
       let streamedModelText = ''
+      const reusableToolResults = new Map<string, AgentToolExecution>()
+      const availableTools =
+        modelInfo.supportsImages === false
+          ? AGENT_TOOLS.filter((tool) => tool.name !== 'inspect_visual_assets')
+          : AGENT_TOOLS
 
       const emitActivity = (activity: AgentActivity): void => {
         if (controller.signal.aborted || event.sender.isDestroyed()) return
@@ -1164,7 +1287,7 @@ function registerIpc(): void {
       }
 
       try {
-        const maxToolSteps = 12
+        const maxToolSteps = MAX_AGENT_TOOL_STEPS
         for (let step = 0; step <= maxToolSteps; step += 1) {
           if (controller.signal.aborted) {
             throw new DOMException('Request cancelled', 'AbortError')
@@ -1205,7 +1328,7 @@ function registerIpc(): void {
               purpose:
                 request.mode === 'targeted-edit' ? 'targeted-edit' : 'design',
               messages: conversation,
-              tools: step < maxToolSteps ? AGENT_TOOLS : [],
+              tools: step < maxToolSteps ? availableTools : [],
               signal: controller.signal,
               onProviderEvent: (providerEvent) => {
                 const detail =
@@ -1329,6 +1452,26 @@ function registerIpc(): void {
                 description.detail
               )
               emitActivity(activity)
+              const cacheKey = reusableToolKey(call)
+              const reusable =
+                REUSABLE_AGENT_TOOLS.has(call.name)
+                  ? reusableToolResults.get(cacheKey)
+                  : undefined
+              if (reusable) {
+                harnessStats.reusedToolCalls += 1
+                emitActivity(
+                  finishActivity(
+                    activity,
+                    'complete',
+                    'Reused a validated result from this run'
+                  )
+                )
+                return {
+                  call,
+                  activity,
+                  execution: reusable
+                }
+              }
               const telemetrySpan = startTelemetrySpan(
                 'tool',
                 description.label,
@@ -1469,8 +1612,14 @@ function registerIpc(): void {
                 role: 'tool',
                 toolCallId: result.call.id,
                 toolName: result.call.name,
-                content: execution.content
+                content: boundToolResult(execution.content)
               })
+              if (REUSABLE_AGENT_TOOLS.has(result.call.name)) {
+                reusableToolResults.set(
+                  reusableToolKey(result.call),
+                  execution
+                )
+              }
             } else {
               const message =
                 result.error instanceof Error
@@ -1485,11 +1634,13 @@ function registerIpc(): void {
                 role: 'tool',
                 toolCallId: result.call.id,
                 toolName: result.call.name,
-                content: JSON.stringify({
-                  tool: result.call.name,
-                  ok: false,
-                  error: message
-                })
+                content: boundToolResult(
+                  JSON.stringify({
+                    tool: result.call.name,
+                    ok: false,
+                    error: message
+                  })
+                )
               })
             }
           }
@@ -1519,6 +1670,7 @@ function registerIpc(): void {
         if (!completed) {
           throw new Error('The agent reached its tool limit without a final response.')
         }
+        usage = combineUsage(usage, visualInspectionUsage)
         finishWriting('complete', 'Response complete')
         telemetry.completedAt = new Date().toISOString()
         emitTelemetry()
@@ -1549,6 +1701,8 @@ function registerIpc(): void {
             pagesRead: harnessStats.pagesRead,
             sources: toolState.sources.length,
             fetchedAssets: toolState.assets.length,
+            visualInspections: harnessStats.visualInspections,
+            reusedToolCalls: harnessStats.reusedToolCalls,
             evidenceItems:
               toolState.sources.length +
               toolState.assets.length +

@@ -41,7 +41,6 @@ import {
   MOTION_PREVIEW_CHANNEL,
   type MotionPreviewMessage
 } from '../lib/motionPreview'
-import { RefineMenu } from './RefineMenu'
 import type { InspectorTab } from './DesignInspector'
 
 type ViewportMode = 'desktop' | 'tablet' | 'mobile'
@@ -50,7 +49,6 @@ interface PreviewCanvasProps {
   onExport: () => void
   onOpenInspector: (tab: InspectorTab) => void
   onOpenPreview: () => void
-  onQuickRefine: (prompt: string) => void
   onRequestTargetEdit: () => void
   onRetry: () => void
   onSelectTarget: (target: DesignSelection | null) => void
@@ -136,7 +134,6 @@ export function PreviewCanvas({
   onExport,
   onOpenInspector,
   onOpenPreview,
-  onQuickRefine,
   onRequestTargetEdit,
   onRetry,
   onSelectTarget,
@@ -562,11 +559,6 @@ export function PreviewCanvas({
               <span>Reference</span>
             </button>
           ) : null}
-
-          <RefineMenu
-            disabled={toolsDisabled}
-            onSelect={onQuickRefine}
-          />
 
           <button
             aria-label={`Open design versions, ${versionCount} saved`}

@@ -32,7 +32,7 @@ interface StreamRequest {
   currentDesign: string
   designMode?: DesignMode
   externalContext?: string
-  purpose?: 'design' | 'targeted-edit'
+  purpose?: 'design' | 'targeted-edit' | 'visual-inspection'
   mode?: 'design' | 'polish' | 'targeted-edit'
   reviewNotes?: string
   target?: DesignSelection
@@ -81,7 +81,7 @@ export interface AgentTurnRequest {
   currentDesign: string
   designMode?: DesignMode
   externalContext?: string
-  purpose?: 'design' | 'targeted-edit'
+  purpose?: 'design' | 'targeted-edit' | 'visual-inspection'
   mode?: 'design' | 'polish' | 'targeted-edit'
   reviewNotes?: string
   target?: DesignSelection
@@ -192,6 +192,7 @@ function waitForRetry(ms: number, signal: AbortSignal): Promise<void> {
 
 function outputTokenLimit(purpose: StreamRequest['purpose']): number {
   if (purpose === 'targeted-edit') return 8_000
+  if (purpose === 'visual-inspection') return 2_500
   return 16_384
 }
 
@@ -617,6 +618,8 @@ async function runOpenAiAgentTurn(
             : {}),
           ...(request.purpose === 'targeted-edit'
             ? { max_output_tokens: 8_000 }
+            : request.purpose === 'visual-inspection'
+              ? { max_output_tokens: 2_500 }
             : {})
         })
       },
@@ -1261,6 +1264,8 @@ async function runDeepSeekAgentTurn(
             : {}),
           ...(request.purpose === 'targeted-edit'
             ? { max_tokens: 8_000 }
+            : request.purpose === 'visual-inspection'
+              ? { max_tokens: 2_500 }
             : {})
         })
       },

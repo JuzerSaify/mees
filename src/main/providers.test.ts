@@ -35,12 +35,13 @@ afterEach(() => {
 
 describe('provider model discovery', () => {
   it('discovers and sorts OpenAI text models', async () => {
+    const now = Math.floor(Date.now() / 1_000)
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
         data: [
-          { id: 'gpt-5.4', created: 5 },
-          { id: 'text-embedding-3-large', created: 7 },
-          { id: 'gpt-5.5', created: 8 }
+          { id: 'gpt-5.4', created: now - 200 },
+          { id: 'text-embedding-3-large', created: now - 100 },
+          { id: 'gpt-5.5', created: now }
         ]
       })
     )

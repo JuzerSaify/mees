@@ -239,6 +239,8 @@ export function ModelPicker({
                       <button
                         aria-selected={selected}
                         className={`model-option ${selected ? 'is-selected' : ''}`}
+                        data-model-id={model.id}
+                        data-model-provider={provider.provider}
                         key={model.id}
                         onClick={() => void chooseModel(provider.provider, model.id)}
                         role="option"
