@@ -4,6 +4,7 @@ import {
   getEffortSupport,
   normalizeEffort
 } from './effort'
+import type { ModelInfo } from './types'
 
 describe('model effort support', () => {
   it('exposes native OpenAI effort ceilings', () => {
@@ -93,5 +94,26 @@ describe('model effort support', () => {
     expect(normalizeEffort('openai', 'gpt-6.1-sol', 'max')).toBe('max')
     expect(normalizeEffort('openai', 'gpt-6.1-sol', 'none')).toBe('medium')
     expect(normalizeEffort('openai', 'gpt-4.1', 'high')).toBeNull()
+  })
+
+  it('uses the reasoning levels advertised by an installed harness', () => {
+    const model: ModelInfo = {
+      id: 'gpt-6.1-sol',
+      name: 'GPT-6.1-Sol',
+      provider: 'codex',
+      reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+      defaultEffort: 'medium'
+    }
+    expect(getEffortSupport('codex', model.id, model)).toMatchObject({
+      transport: 'harness',
+      defaultEffort: 'medium'
+    })
+    expect(
+      getEffortSupport('codex', model.id, model).options.map(
+        (option) => option.value
+      )
+    ).toEqual(['low', 'medium', 'high', 'xhigh', 'max', 'ultra'])
+    expect(normalizeEffort('codex', model.id, 'ultra', model)).toBe('ultra')
+    expect(normalizeEffort('codex', model.id, 'none', model)).toBe('medium')
   })
 })

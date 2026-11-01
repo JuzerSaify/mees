@@ -12,8 +12,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   PROVIDER_DEFINITIONS,
   type AppUpdateState,
-  type AppSnapshot,
-  type ProviderId
+  type AppSnapshot
 } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
 import { useModalFocus } from '../lib/useModalFocus'
@@ -31,6 +30,7 @@ export function SettingsDialog({
   snapshot
 }: SettingsDialogProps): React.JSX.Element {
   const [busy, setBusy] = useState(false)
+  const [scanning, setScanning] = useState(false)
   const [error, setError] = useState('')
   const [updateBusy, setUpdateBusy] = useState(false)
   const [updateState, setUpdateState] = useState<AppUpdateState | null>(null)
@@ -62,6 +62,20 @@ export function SettingsDialog({
       setError(errorMessage(caught))
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function scanHarnesses(): Promise<void> {
+    if (scanning) return
+    setScanning(true)
+    setError('')
+    try {
+      const next = await window.mees?.syncHarnesses()
+      if (next) onSnapshot(next)
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setScanning(false)
     }
   }
 
@@ -126,6 +140,17 @@ export function SettingsDialog({
     updateState.status === 'checking' ||
     updateState.status === 'downloading' ||
     updateState.status === 'unsupported'
+  const availableProviders = snapshot.settings.providers.filter(
+    (provider) =>
+      PROVIDER_DEFINITIONS[provider.provider].source === 'api' ||
+      provider.available
+  )
+  const apiProviders = availableProviders.filter(
+    (provider) => PROVIDER_DEFINITIONS[provider.provider].source === 'api'
+  )
+  const harnessProviders = availableProviders.filter(
+    (provider) => PROVIDER_DEFINITIONS[provider.provider].source === 'harness'
+  )
 
   return (
     <div
@@ -165,26 +190,50 @@ export function SettingsDialog({
             <div className="settings-label">
               <h3 id="sources-title">Model sources</h3>
               <p>
-                Keys stay encrypted on this device. Web research always receives the current
-                search query; provider keys are never included.
+                API keys stay encrypted on this device. Local harnesses keep their own
+                credentials and billing.
               </p>
             </div>
             <div className="settings-panel provider-settings-panel">
-              {(Object.keys(PROVIDER_DEFINITIONS) as ProviderId[]).map((providerId) => {
-                const status = snapshot.settings.providers.find(
-                  (provider) => provider.provider === providerId
-                )
-                if (!status) return null
-                return (
+              <div className="provider-group-label">API accounts</div>
+              {apiProviders.map((status) => (
+                <ProviderForm
+                  key={status.provider}
+                  onSnapshot={onSnapshot}
+                  provider={status.provider}
+                  secureStorageAvailable={snapshot.settings.secureStorageAvailable}
+                  status={status}
+                />
+              ))}
+              {harnessProviders.length ? (
+                <>
+                  <div className="provider-group-label">Detected paid harnesses</div>
+                  {harnessProviders.map((status) => (
                   <ProviderForm
-                    key={providerId}
+                    key={status.provider}
                     onSnapshot={onSnapshot}
-                    provider={providerId}
+                    provider={status.provider}
                     secureStorageAvailable={snapshot.settings.secureStorageAvailable}
                     status={status}
                   />
-                )
-              })}
+                  ))}
+                </>
+              ) : null}
+              <div className="settings-provider-actions">
+                <button
+                  className="text-button"
+                  disabled={scanning}
+                  onClick={() => void scanHarnesses()}
+                  type="button"
+                >
+                  <RefreshCw
+                    aria-hidden="true"
+                    className={scanning ? 'spin' : ''}
+                    size={14}
+                  />
+                  {scanning ? 'Scanning local harnesses' : 'Scan local harnesses'}
+                </button>
+              </div>
             </div>
           </section>
 

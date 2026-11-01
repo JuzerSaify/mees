@@ -1,12 +1,23 @@
 import type { EffortLevel } from './effort'
 
-export type ProviderId = 'openai' | 'anthropic' | 'google' | 'deepseek'
+export type ProviderId =
+  | 'openai'
+  | 'anthropic'
+  | 'google'
+  | 'deepseek'
+  | 'codex'
+  | 'opencode'
+
+export type ProviderSource = 'api' | 'harness'
+export type HarnessProviderId = Extract<ProviderId, 'codex' | 'opencode'>
 
 export interface ProviderDefinition {
   id: ProviderId
   name: string
   series: string
-  keyUrl: string
+  source: ProviderSource
+  keyUrl?: string
+  installUrl?: string
 }
 
 export const PROVIDER_DEFINITIONS: Record<ProviderId, ProviderDefinition> = {
@@ -14,29 +25,60 @@ export const PROVIDER_DEFINITIONS: Record<ProviderId, ProviderDefinition> = {
     id: 'openai',
     name: 'OpenAI',
     series: 'GPT',
+    source: 'api',
     keyUrl: 'https://platform.openai.com/api-keys'
   },
   anthropic: {
     id: 'anthropic',
     name: 'Claude',
     series: 'Anthropic',
+    source: 'api',
     keyUrl: 'https://console.anthropic.com/settings/keys'
   },
   google: {
     id: 'google',
     name: 'Gemini',
     series: 'Google',
+    source: 'api',
     keyUrl: 'https://aistudio.google.com/app/apikey'
   },
   deepseek: {
     id: 'deepseek',
     name: 'DeepSeek',
     series: 'DeepSeek',
+    source: 'api',
     keyUrl: 'https://platform.deepseek.com/api_keys'
+  },
+  codex: {
+    id: 'codex',
+    name: 'Codex CLI',
+    series: 'OpenAI harness',
+    source: 'harness',
+    installUrl: 'https://developers.openai.com/codex/cli/'
+  },
+  opencode: {
+    id: 'opencode',
+    name: 'OpenCode',
+    series: 'Local harness',
+    source: 'harness',
+    installUrl: 'https://opencode.ai/docs/'
   }
 }
 
 export const PROVIDER_IDS = Object.keys(PROVIDER_DEFINITIONS) as ProviderId[]
+export const API_PROVIDER_IDS = PROVIDER_IDS.filter(
+  (provider) => PROVIDER_DEFINITIONS[provider].source === 'api'
+)
+export const HARNESS_PROVIDER_IDS = PROVIDER_IDS.filter(
+  (provider): provider is HarnessProviderId =>
+    PROVIDER_DEFINITIONS[provider].source === 'harness'
+)
+
+export function isHarnessProvider(
+  provider: ProviderId
+): provider is HarnessProviderId {
+  return PROVIDER_DEFINITIONS[provider].source === 'harness'
+}
 
 export interface ModelInfo {
   id: string
@@ -48,12 +90,18 @@ export interface ModelInfo {
   supportsImages?: boolean
   latest?: boolean
   shutdownDate?: string
+  reasoningEfforts?: EffortLevel[]
+  defaultEffort?: EffortLevel
 }
 
 export interface ProviderStatus {
   provider: ProviderId
+  source: ProviderSource
+  available: boolean
   connected: boolean
   keyHint?: string
+  harnessPath?: string
+  harnessVersion?: string
   models: ModelInfo[]
   selectedModel?: string
   verifiedAt?: string
@@ -507,10 +555,12 @@ export interface AppUpdateState {
 export interface MeesApi {
   getState: () => Promise<AppSnapshot>
   connectProvider: (provider: ProviderId, apiKey: string) => Promise<AppSnapshot>
+  syncHarnesses: () => Promise<AppSnapshot>
   disconnectProvider: (provider: ProviderId) => Promise<AppSnapshot>
   refreshModels: (provider: ProviderId) => Promise<AppSnapshot>
   selectModel: (provider: ProviderId, model: string) => Promise<AppSnapshot>
   savePreferences: (update: PreferencesUpdate) => Promise<AppSnapshot>
+  onSettingsChanged: (listener: (snapshot: AppSnapshot) => void) => () => void
   saveProject: (project: AppProject) => Promise<AppProject>
   deleteProject: (projectId: string) => Promise<void>
   captureArtifact: (
@@ -541,10 +591,12 @@ export interface MeesApi {
 export const IPC_CHANNELS = {
   getState: 'mees:get-state',
   connectProvider: 'mees:connect-provider',
+  syncHarnesses: 'mees:sync-harnesses',
   disconnectProvider: 'mees:disconnect-provider',
   refreshModels: 'mees:refresh-models',
   selectModel: 'mees:select-model',
   savePreferences: 'mees:save-preferences',
+  settingsChanged: 'mees:settings-changed',
   saveProject: 'mees:save-project',
   deleteProject: 'mees:delete-project',
   captureArtifact: 'mees:capture-artifact',

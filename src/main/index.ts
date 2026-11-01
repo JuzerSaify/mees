@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url'
 import {
   IPC_CHANNELS,
   PROVIDER_IDS,
+  isHarnessProvider,
   type AgentActivity,
   type AgentQuestion,
   type AgentReferenceImage,
@@ -45,11 +46,14 @@ import {
   type AgentToolCall
 } from './providers'
 import { MeesStore } from './store'
+import {
+  discoverLocalHarnesses,
+  refreshLocalHarness
+} from './local-harness'
 import { compactAgentHistory } from './context'
 import {
   getEffortSupport,
-  isEffortLevel,
-  normalizeEffort
+  isEffortLevel
 } from '../shared/effort'
 import {
   AGENT_TOOLS,
@@ -78,7 +82,10 @@ import {
 
 const currentDirectory = fileURLToPath(new URL('.', import.meta.url))
 const isDevelopment = Boolean(process.env.ELECTRON_RENDERER_URL)
-const hasIsolatedUserData = !app.isPackaged && Boolean(process.env.MEES_USER_DATA_DIR)
+const hasIsolatedUserData = Boolean(
+  process.env.MEES_USER_DATA_DIR &&
+    (!app.isPackaged || process.env.MEES_ALLOW_ISOLATED_USER_DATA === '1')
+)
 const legacyUserDataFolder = 'kern'
 const MAX_AGENT_TOOL_STEPS = 24
 const MAX_TOOL_RESULT_CHARS = 28_000
@@ -720,11 +727,7 @@ function sanitizeAgentRequest(value: unknown): StartAgentRequest {
   }
   const model = request.model.trim()
   if (request.effort !== undefined) {
-    const effort = getEffortSupport(provider, model)
-    if (
-      !isEffortLevel(request.effort) ||
-      !effort.options.some((option) => option.value === request.effort)
-    ) {
+    if (!isEffortLevel(request.effort)) {
       throw new Error('That effort level is not supported by this model.')
     }
   }
@@ -778,8 +781,7 @@ function sanitizeAgentRequest(value: unknown): StartAgentRequest {
   return {
     provider,
     model,
-    effort:
-      normalizeEffort(provider, model, request.effort) ?? undefined,
+    effort: isEffortLevel(request.effort) ? request.effort : undefined,
     history,
     currentDesign:
       typeof request.currentDesign === 'string'
@@ -886,6 +888,21 @@ async function createMainWindow(): Promise<void> {
   }
 }
 
+async function refreshHarnessesInBackground(): Promise<void> {
+  try {
+    const detections = await discoverLocalHarnesses()
+    await store.syncHarnessProviders(detections)
+    const snapshot = await store.getSnapshot()
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.webContents.isDestroyed()) {
+        window.webContents.send(IPC_CHANNELS.settingsChanged, snapshot)
+      }
+    }
+  } catch (error) {
+    console.warn('Could not refresh local harnesses.', error)
+  }
+}
+
 function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getState, async () => store.getSnapshot())
 
@@ -893,6 +910,16 @@ function registerIpc(): void {
     IPC_CHANNELS.connectProvider,
     async (_event, rawProvider: unknown, rawKey: unknown) => {
       const provider = validateProvider(rawProvider)
+      if (isHarnessProvider(provider)) {
+        const detection = await refreshLocalHarness(provider)
+        await store.syncHarnessProviders([detection])
+        if (!detection.available || detection.models.length === 0) {
+          throw new Error(
+            detection.error || 'The local harness is not available.'
+          )
+        }
+        return store.getSnapshot()
+      }
       const apiKey = validateApiKey(rawKey)
       const models = await listModels(provider, apiKey)
       if (models.length === 0) {
@@ -910,14 +937,33 @@ function registerIpc(): void {
     }
   )
 
+  ipcMain.handle(IPC_CHANNELS.syncHarnesses, async () => {
+    const detections = await discoverLocalHarnesses()
+    await store.syncHarnessProviders(detections)
+    return store.getSnapshot()
+  })
+
   ipcMain.handle(IPC_CHANNELS.disconnectProvider, async (_event, rawProvider: unknown) => {
     const provider = validateProvider(rawProvider)
+    if (isHarnessProvider(provider)) {
+      throw new Error('Installed harnesses are managed by system discovery.')
+    }
     await store.disconnectProvider(provider)
     return store.getSnapshot()
   })
 
   ipcMain.handle(IPC_CHANNELS.refreshModels, async (_event, rawProvider: unknown) => {
     const provider = validateProvider(rawProvider)
+    if (isHarnessProvider(provider)) {
+      const detection = await refreshLocalHarness(provider)
+      await store.syncHarnessProviders([detection])
+      if (!detection.available || detection.models.length === 0) {
+        throw new Error(
+          detection.error || 'The local harness is not available.'
+        )
+      }
+      return store.getSnapshot()
+    }
     const apiKey = await store.getApiKey(provider)
     const models = await listModels(provider, apiKey)
     if (models.length === 0) throw new Error('No text models are available for this API key.')
@@ -1010,6 +1056,16 @@ function registerIpc(): void {
     if (!modelInfo) {
       throw new Error('That model is no longer available. Refresh the provider first.')
     }
+    if (inputRequest.effort !== undefined) {
+      const effort = getEffortSupport(
+        inputRequest.provider,
+        inputRequest.model,
+        modelInfo
+      )
+      if (!effort.options.some((option) => option.value === inputRequest.effort)) {
+        throw new Error('That effort level is not supported by this model.')
+      }
+    }
     if (
       modelInfo.supportsImages === false &&
       inputRequest.history.some((message) => message.referenceImages?.length)
@@ -1044,7 +1100,9 @@ function registerIpc(): void {
       ...inputRequest,
       history: compacted.history
     }
-    const apiKey = await store.getApiKey(request.provider)
+    const apiKey = isHarnessProvider(request.provider)
+      ? ''
+      : await store.getApiKey(request.provider)
     const requestId = randomUUID()
     const controller = new AbortController()
     agentRequests.set(requestId, { controller, sender: event.sender })
@@ -1301,8 +1359,7 @@ function registerIpc(): void {
             'compose',
             step === 0
               ? 'Understanding the brief'
-              : 'Continuing the agent loop',
-            `Provider turn ${step + 1}`
+              : 'Continuing the work'
           )
           emitActivity(modelActivity)
           telemetry.spans = upsertTelemetrySpan(
@@ -1414,6 +1471,15 @@ function registerIpc(): void {
             if (!turn.text.trim()) {
               throw new Error(
                 'The agent finished without returning a response or using a tool.'
+              )
+            }
+            if (
+              !/:::\s*(?:design|patch)\b|<svg\b|<!doctype\s+html\b|<html\b/i.test(
+                turn.text
+              )
+            ) {
+              throw new Error(
+                'The agent returned commentary without the required design artifact.'
               )
             }
             completed = true
@@ -1906,6 +1972,12 @@ async function boot(): Promise<void> {
 
   await createMainWindow()
   scheduleAutomaticUpdateCheck()
+  if (process.env.MEES_DISABLE_HARNESS_DISCOVERY !== '1') {
+    const timer = setTimeout(() => {
+      void refreshHarnessesInBackground()
+    }, 180)
+    timer.unref()
+  }
 }
 
 if (hasSingleInstanceLock) {

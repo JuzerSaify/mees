@@ -3,17 +3,18 @@ import {
   Check,
   LoaderCircle,
   LockKeyhole,
+  RefreshCw,
   ShieldCheck
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import {
   PROVIDER_DEFINITIONS,
-  type AppSnapshot,
-  type ProviderId
+  type AppSnapshot
 } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
 import { Wordmark } from './Brand'
 import { ProviderForm } from './ProviderForm'
+import { UpdateAction } from './UpdateAction'
 
 interface OnboardingProps {
   snapshot: AppSnapshot
@@ -25,8 +26,20 @@ export function Onboarding({
   onSnapshot
 }: OnboardingProps): React.JSX.Element {
   const [entering, setEntering] = useState(false)
+  const [scanning, setScanning] = useState(false)
   const [error, setError] = useState('')
   const connected = snapshot.settings.providers.filter((provider) => provider.connected)
+  const availableProviders = snapshot.settings.providers.filter(
+    (provider) =>
+      PROVIDER_DEFINITIONS[provider.provider].source === 'api' ||
+      provider.available
+  )
+  const apiProviders = availableProviders.filter(
+    (provider) => PROVIDER_DEFINITIONS[provider.provider].source === 'api'
+  )
+  const harnessProviders = availableProviders.filter(
+    (provider) => PROVIDER_DEFINITIONS[provider.provider].source === 'harness'
+  )
   const selectedProvider = snapshot.settings.activeProvider
   const modelCount = connected.reduce((count, provider) => count + provider.models.length, 0)
 
@@ -48,11 +61,26 @@ export function Onboarding({
     }
   }
 
+  async function scanHarnesses(): Promise<void> {
+    if (scanning) return
+    setScanning(true)
+    setError('')
+    try {
+      const next = await window.mees?.syncHarnesses()
+      if (next) onSnapshot(next)
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setScanning(false)
+    }
+  }
+
   return (
     <div className="onboarding-page">
       <header className="app-topbar onboarding-topbar">
         <Wordmark iconOnly />
         <span className="topbar-context">Local design workspace</span>
+        <UpdateAction />
         <div className="topbar-window-space" />
       </header>
 
@@ -65,8 +93,9 @@ export function Onboarding({
               One living canvas.
             </h1>
             <p className="onboarding-lede">
-              Bring a paid API key from OpenAI, Claude, Gemini or DeepSeek. Mees streams a
-              complete responsive design into the viewport while you refine it in conversation.
+              Bring a paid API key, or use a paid AI CLI already installed on this
+              computer. Mees discovers its models and streams the complete design into
+              the live canvas.
             </p>
           </div>
 
@@ -77,7 +106,7 @@ export function Onboarding({
             </div>
             <div>
               <Check aria-hidden="true" size={15} />
-              <span>Switch model families without changing the workspace.</span>
+              <span>Switch between API accounts and installed harnesses in one workspace.</span>
             </div>
             <div>
               <Check aria-hidden="true" size={15} />
@@ -88,9 +117,9 @@ export function Onboarding({
           <div className="onboarding-footnote">
             <LockKeyhole aria-hidden="true" size={16} />
             <p>
-              API keys are encrypted with {snapshot.settings.storageBackend}. They are sent only
-              to the provider you select. Search queries and public page URLs are sent without
-              your key.
+              API keys are encrypted with {snapshot.settings.storageBackend}. CLI
+              harnesses keep their own sign-in and billing. Search queries and public
+              page URLs are sent without either credential.
             </p>
           </div>
         </section>
@@ -99,27 +128,52 @@ export function Onboarding({
           <div className="connection-sheet-header">
             <div>
               <h2 id="model-access-title">Model access</h2>
-              <p>Connect one paid account to begin. You can add the others later.</p>
+              <p>Connect an API account or use a detected paid harness.</p>
             </div>
-            <ShieldCheck aria-hidden="true" size={19} />
+            <div className="connection-header-actions">
+              <button
+                aria-label="Scan for local harnesses"
+                className="field-icon-button"
+                data-tooltip="Scan local harnesses"
+                disabled={scanning}
+                onClick={() => void scanHarnesses()}
+                type="button"
+              >
+                <RefreshCw
+                  aria-hidden="true"
+                  className={scanning ? 'spin' : ''}
+                  size={15}
+                />
+              </button>
+              <ShieldCheck aria-hidden="true" size={19} />
+            </div>
           </div>
 
           <div className="provider-list">
-            {(Object.keys(PROVIDER_DEFINITIONS) as ProviderId[]).map((providerId) => {
-              const status = snapshot.settings.providers.find(
-                (provider) => provider.provider === providerId
-              )
-              if (!status) return null
-              return (
-                <ProviderForm
-                  key={providerId}
-                  onSnapshot={onSnapshot}
-                  provider={providerId}
-                  secureStorageAvailable={snapshot.settings.secureStorageAvailable}
-                  status={status}
-                />
-              )
-            })}
+            <div className="provider-group-label">API accounts</div>
+            {apiProviders.map((status) => (
+              <ProviderForm
+                key={status.provider}
+                onSnapshot={onSnapshot}
+                provider={status.provider}
+                secureStorageAvailable={snapshot.settings.secureStorageAvailable}
+                status={status}
+              />
+            ))}
+            {harnessProviders.length ? (
+              <>
+                <div className="provider-group-label">Detected paid harnesses</div>
+                {harnessProviders.map((status) => (
+                  <ProviderForm
+                    key={status.provider}
+                    onSnapshot={onSnapshot}
+                    provider={status.provider}
+                    secureStorageAvailable={snapshot.settings.secureStorageAvailable}
+                    status={status}
+                  />
+                ))}
+              </>
+            ) : null}
           </div>
 
           <div className="connection-footer">
@@ -140,7 +194,7 @@ export function Onboarding({
             </div>
             <button
               className="primary-button enter-button"
-              disabled={connected.length === 0 || entering || !snapshot.settings.secureStorageAvailable}
+              disabled={connected.length === 0 || entering}
               onClick={() => void enterStudio()}
               type="button"
             >
@@ -160,8 +214,8 @@ export function Onboarding({
 
           {!snapshot.settings.secureStorageAvailable ? (
             <p className="field-error connection-error">
-              Mees could not access {snapshot.settings.storageBackend}. API keys must be stored
-              securely, so provider setup is disabled.
+              Mees could not access {snapshot.settings.storageBackend}. API-key setup
+              is disabled; detected local harnesses remain available.
             </p>
           ) : null}
           {error ? <p className="field-error connection-error">{error}</p> : null}

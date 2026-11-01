@@ -29,8 +29,9 @@ import type {
   MessageStatus
 } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
+import { stripHarnessTransportMarkup } from '../lib/agentOutput'
 import { chooseAgentStatus } from '../lib/agentStatus'
-import { formatDuration } from '../lib/format'
+import { compactModelName, formatDuration } from '../lib/format'
 import {
   MAX_REFERENCE_IMAGES,
   isSupportedReferenceImage,
@@ -399,6 +400,10 @@ function MessageBody({
   const isActiveRun =
     run?.assistantMessageId === message.id &&
     (run.status === 'starting' || run.status === 'streaming')
+  const visibleContent =
+    message.role === 'assistant'
+      ? stripHarnessTransportMarkup(message.content)
+      : message.content
 
   if (message.role === 'user') {
     return (
@@ -431,7 +436,11 @@ function MessageBody({
       <div className="message-author">
         {message.provider ? <ProviderMark provider={message.provider} size={15} /> : null}
         <span>Mees</span>
-        {message.model ? <span className="message-model">{message.model}</span> : null}
+        {message.model ? (
+          <span className="message-model">
+            {compactModelName(message.provider, message.model)}
+          </span>
+        ) : null}
       </div>
       {isActiveRun || message.activities?.length ? (
         <AgentStatusLine
@@ -442,7 +451,7 @@ function MessageBody({
           status={message.status}
         />
       ) : null}
-      {message.content && !hideClarificationContent ? (
+      {visibleContent && !hideClarificationContent ? (
         <div className="markdown-body">
           <ReactMarkdown
             components={{
@@ -460,7 +469,7 @@ function MessageBody({
             }}
             remarkPlugins={[remarkGfm]}
           >
-            {message.content}
+            {visibleContent}
           </ReactMarkdown>
         </div>
       ) : null}

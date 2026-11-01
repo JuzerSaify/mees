@@ -3,6 +3,8 @@ import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import {
+  HARNESS_PROVIDER_IDS,
+  PROVIDER_DEFINITIONS,
   PROVIDER_IDS,
   type AppProject,
   type AppSnapshot,
@@ -14,7 +16,9 @@ import {
   type ModelInfo,
   type PreferencesUpdate,
   type ProviderId,
-  type ProviderStatus
+  type ProviderSource,
+  type ProviderStatus,
+  isHarnessProvider
 } from '../shared/types'
 import {
   getEffortSupport,
@@ -24,10 +28,14 @@ import {
 } from '../shared/effort'
 import { filterModelCatalog } from '../shared/model-catalog'
 import { AssetStore } from './asset-store'
+import type { LocalHarnessDetection } from './local-harness'
 
 interface StoredProvider {
-  encryptedApiKey: string
+  source?: ProviderSource
+  encryptedApiKey?: string
   keyHint: string
+  harnessPath?: string
+  harnessVersion?: string
   models: ModelInfo[]
   selectedModel?: string
   verifiedAt: string
@@ -106,17 +114,27 @@ function sanitizeStoredSettings(value: unknown): StoredSettings {
     const candidate = rawProviders[providerId]
     if (!candidate || typeof candidate !== 'object') continue
     const provider = candidate as Record<string, unknown>
+    const source = isHarnessProvider(providerId) ? 'harness' : 'api'
     if (
-      typeof provider.encryptedApiKey !== 'string' ||
       !Array.isArray(provider.models) ||
-      provider.models.length === 0
+      provider.models.length === 0 ||
+      (source === 'api' && typeof provider.encryptedApiKey !== 'string')
     ) {
       continue
     }
 
     providers[providerId] = {
-      encryptedApiKey: provider.encryptedApiKey,
+      source,
+      ...(typeof provider.encryptedApiKey === 'string'
+        ? { encryptedApiKey: provider.encryptedApiKey }
+        : {}),
       keyHint: typeof provider.keyHint === 'string' ? provider.keyHint : 'stored key',
+      ...(typeof provider.harnessPath === 'string'
+        ? { harnessPath: provider.harnessPath }
+        : {}),
+      ...(typeof provider.harnessVersion === 'string'
+        ? { harnessVersion: provider.harnessVersion }
+        : {}),
       models: (provider.models as ModelInfo[]).map((model) => ({
         ...model,
         provider: providerId
@@ -500,8 +518,16 @@ export class MeesStore {
           : models[0]?.id
       return {
         provider: providerId,
-        connected: Boolean(stored) && models.length > 0,
+        source: PROVIDER_DEFINITIONS[providerId].source,
+        available: isHarnessProvider(providerId) ? Boolean(stored) : true,
+        connected:
+          Boolean(stored) &&
+          models.length > 0 &&
+          (isHarnessProvider(providerId) ||
+            Boolean(stored?.encryptedApiKey)),
         keyHint: stored?.keyHint,
+        harnessPath: stored?.harnessPath,
+        harnessVersion: stored?.harnessVersion,
         models,
         selectedModel,
         verifiedAt: stored?.verifiedAt
@@ -555,10 +581,14 @@ export class MeesStore {
     const provider = this.normalizedActiveProvider()
     const model = this.normalizedActiveModel()
     if (!provider || !model) return null
+    const modelInfo = this.settings.providers[provider]?.models.find(
+      (entry) => entry.id === model
+    )
     return normalizeEffort(
       provider,
       model,
-      this.settings.efforts[provider]?.[model]
+      this.settings.efforts[provider]?.[model],
+      modelInfo
     )
   }
 
@@ -597,9 +627,13 @@ export class MeesStore {
     keyHint: string,
     models: ModelInfo[]
   ): Promise<void> {
+    if (isHarnessProvider(provider)) {
+      throw new Error('Local harnesses do not use API keys.')
+    }
     await this.mutateSettings(() => {
       const selectedModel = models[0]?.id
       this.settings.providers[provider] = {
+        source: PROVIDER_DEFINITIONS[provider].source,
         encryptedApiKey,
         keyHint,
         models,
@@ -644,6 +678,59 @@ export class MeesStore {
       if (this.settings.activeProvider === provider) {
         this.settings.activeModel = selectedModel ?? null
       }
+    })
+  }
+
+  async syncHarnessProviders(
+    detections: LocalHarnessDetection[]
+  ): Promise<void> {
+    const detected = new Map(
+      detections.map((detection) => [detection.provider, detection])
+    )
+    await this.mutateSettings(() => {
+      for (const providerId of HARNESS_PROVIDER_IDS) {
+        const detection = detected.get(providerId)
+        if (!detection?.available || detection.models.length === 0) {
+          if (detection?.commandPath && this.settings.providers[providerId]) {
+            continue
+          }
+          delete this.settings.providers[providerId]
+          delete this.settings.efforts[providerId]
+          continue
+        }
+
+        const existing = this.settings.providers[providerId]
+        const selectedModel =
+          existing?.selectedModel &&
+          detection.models.some(
+            (model) => model.id === existing.selectedModel
+          )
+            ? existing.selectedModel
+            : detection.models[0]?.id
+
+        this.settings.providers[providerId] = {
+          source: 'harness',
+          keyHint: detection.version ?? 'Installed locally',
+          harnessPath: detection.commandPath,
+          harnessVersion: detection.version,
+          models: detection.models,
+          selectedModel,
+          verifiedAt: new Date().toISOString()
+        }
+        this.settings.efforts[providerId] = Object.fromEntries(
+          Object.entries(this.settings.efforts[providerId] ?? {}).filter(
+            ([modelId, effort]) => {
+              const model = detection.models.find(
+                (entry) => entry.id === modelId
+              )
+              return model?.reasoningEfforts?.includes(effort) === true
+            }
+          )
+        )
+      }
+
+      this.settings.activeProvider = this.normalizedActiveProvider()
+      this.settings.activeModel = this.normalizedActiveModel()
     })
   }
 
@@ -700,7 +787,10 @@ export class MeesStore {
         if (update.activeEffort === null) {
           delete this.settings.efforts[provider]?.[model]
         } else {
-          const effort = getEffortSupport(provider, model)
+          const modelInfo = this.settings.providers[provider]?.models.find(
+            (entry) => entry.id === model
+          )
+          const effort = getEffortSupport(provider, model, modelInfo)
           if (
             !effort.options.some((option) => option.value === update.activeEffort)
           ) {
@@ -718,8 +808,14 @@ export class MeesStore {
   }
 
   async getApiKey(provider: ProviderId): Promise<string> {
+    if (isHarnessProvider(provider)) {
+      throw new Error('This local harness keeps its own authentication.')
+    }
     const stored = this.settings.providers[provider]
     if (!stored) throw new Error('Provider is not connected.')
+    if (!stored.encryptedApiKey) {
+      throw new Error('No encrypted API key is stored for this provider.')
+    }
     if (!(await this.encryptionAvailable())) {
       throw new Error('OS-protected key storage is unavailable.')
     }

@@ -20,6 +20,7 @@ import {
   type EffortLevel
 } from '../shared/effort'
 import { randomUUID } from 'node:crypto'
+import { runLocalHarnessAgentTurn } from './local-harness'
 
 type JsonRecord = Record<string, unknown>
 
@@ -400,6 +401,11 @@ export async function listModels(provider: ProviderId, apiKey: string): Promise<
       return listGeminiModels(apiKey)
     case 'deepseek':
       return listDeepSeekModels(apiKey)
+    case 'codex':
+    case 'opencode':
+      throw new ProviderRequestError(
+        'Local harness models must be refreshed through system discovery.'
+      )
     default:
       throw new ProviderRequestError('Unknown provider.')
   }
@@ -1355,6 +1361,9 @@ export async function runAgentTurn(
       return runGeminiAgentTurn(request)
     case 'deepseek':
       return runDeepSeekAgentTurn(request)
+    case 'codex':
+    case 'opencode':
+      return runLocalHarnessAgentTurn(request)
     default:
       throw new ProviderRequestError(
         `Unsupported provider: ${String((request as AgentTurnRequest).provider)}`

@@ -1,4 +1,4 @@
-import type { ProviderId } from './types'
+import type { ModelInfo, ProviderId } from './types'
 
 export const EFFORT_LEVELS = [
   'none',
@@ -7,7 +7,8 @@ export const EFFORT_LEVELS = [
   'medium',
   'high',
   'xhigh',
-  'max'
+  'max',
+  'ultra'
 ] as const
 
 export type EffortLevel = (typeof EFFORT_LEVELS)[number]
@@ -18,6 +19,7 @@ export type EffortTransport =
   | 'gemini-level'
   | 'gemini-budget'
   | 'deepseek'
+  | 'harness'
   | 'none'
 
 export interface EffortOption {
@@ -39,7 +41,8 @@ const OPTION_COPY: Record<EffortLevel, string> = {
   medium: 'Balanced speed, depth and cost',
   high: 'Deeper reasoning for complex interface work',
   xhigh: 'Extended work for long, demanding tasks',
-  max: 'The model spends whatever it needs for its strongest result'
+  max: 'The model spends whatever it needs for its strongest result',
+  ultra: 'Maximum reasoning with automatic task delegation'
 }
 
 const LABELS: Record<EffortLevel, string> = {
@@ -49,7 +52,8 @@ const LABELS: Record<EffortLevel, string> = {
   medium: 'Medium',
   high: 'High',
   xhigh: 'X-High',
-  max: 'Max'
+  max: 'Max',
+  ultra: 'Ultra'
 }
 
 function options(levels: EffortLevel[], topIsMaximum = false): EffortOption[] {
@@ -194,7 +198,8 @@ function deepSeekSupport(modelId: string): EffortSupport {
 
 export function getEffortSupport(
   provider: ProviderId,
-  modelId: string
+  modelId: string,
+  modelInfo?: ModelInfo
 ): EffortSupport {
   switch (provider) {
     case 'openai':
@@ -205,6 +210,18 @@ export function getEffortSupport(
       return geminiSupport(modelId)
     case 'deepseek':
       return deepSeekSupport(modelId)
+    case 'codex':
+    case 'opencode':
+      if (!modelInfo?.reasoningEfforts?.length) return NO_EFFORT
+      return {
+        transport: 'harness',
+        options: options(modelInfo.reasoningEfforts, true),
+        defaultEffort:
+          modelInfo.defaultEffort &&
+          modelInfo.reasoningEfforts.includes(modelInfo.defaultEffort)
+            ? modelInfo.defaultEffort
+            : modelInfo.reasoningEfforts[0]
+      }
     default:
       return NO_EFFORT
   }
@@ -220,9 +237,10 @@ export function isEffortLevel(value: unknown): value is EffortLevel {
 export function normalizeEffort(
   provider: ProviderId,
   modelId: string,
-  requested: unknown
+  requested: unknown,
+  modelInfo?: ModelInfo
 ): EffortLevel | null {
-  const effort = getEffortSupport(provider, modelId)
+  const effort = getEffortSupport(provider, modelId, modelInfo)
   if (!effort.defaultEffort) return null
   return isEffortLevel(requested) &&
     effort.options.some((option) => option.value === requested)

@@ -19,6 +19,8 @@ const api: MeesApi = {
   getState: () => ipcRenderer.invoke(IPC_CHANNELS.getState) as Promise<AppSnapshot>,
   connectProvider: (provider: ProviderId, apiKey: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.connectProvider, provider, apiKey) as Promise<AppSnapshot>,
+  syncHarnesses: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.syncHarnesses) as Promise<AppSnapshot>,
   disconnectProvider: (provider: ProviderId) =>
     ipcRenderer.invoke(IPC_CHANNELS.disconnectProvider, provider) as Promise<AppSnapshot>,
   refreshModels: (provider: ProviderId) =>
@@ -27,6 +29,17 @@ const api: MeesApi = {
     ipcRenderer.invoke(IPC_CHANNELS.selectModel, provider, model) as Promise<AppSnapshot>,
   savePreferences: (update: PreferencesUpdate) =>
     ipcRenderer.invoke(IPC_CHANNELS.savePreferences, update) as Promise<AppSnapshot>,
+  onSettingsChanged: (listener: (snapshot: AppSnapshot) => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      payload: AppSnapshot
+    ): void => {
+      listener(payload)
+    }
+    ipcRenderer.on(IPC_CHANNELS.settingsChanged, handler)
+    return () =>
+      ipcRenderer.removeListener(IPC_CHANNELS.settingsChanged, handler)
+  },
   saveProject: (project: AppProject) =>
     ipcRenderer.invoke(IPC_CHANNELS.saveProject, project) as Promise<AppProject>,
   deleteProject: (projectId: string) =>

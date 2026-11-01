@@ -6,6 +6,7 @@ import {
   parseDesignTitle,
   parseEditPatch,
   parseEditPatchOutput,
+  stripHarnessTransportMarkup,
   textBytes
 } from './agentOutput'
 
@@ -47,6 +48,20 @@ describe('parseAgentOutput', () => {
     const parsed = parseAgentOutput('I am composing the page.\n:::desi')
     expect(parsed.narrative).toBe('I am composing the page.')
     expect(parsed.designStarted).toBe(false)
+  })
+})
+
+describe('local harness transcript cleanup', () => {
+  it('removes closed and unclosed tool transport blocks', () => {
+    expect(
+      stripHarnessTransportMarkup(
+        [
+          '<mees_tool_call>{"name":"search_web","arguments":{"queries":["news"]}}</mees_tool_call></arg_value></tool_call>',
+          '<mees_tool_call>{"name":"read_urls","arguments":{"urls":["https://example.com"]}}',
+          'Useful display text'
+        ].join('\n')
+      )
+    ).toBe('Useful display text')
   })
 })
 

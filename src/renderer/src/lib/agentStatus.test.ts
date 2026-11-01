@@ -48,5 +48,30 @@ describe('agent status line', () => {
     expect(
       agentStatusOptions(undefined, false, 'DeepSeek V4.1 Flash')[0]
     ).toBe('Waiting for DeepSeek V4.1 Flash')
+    expect(agentStatusOptions(research, true)[0]).toBe(
+      'Receiving the artifact'
+    )
+  })
+
+  it('cycles a clean user-facing thought while a model turn is slow', () => {
+    const thinking: AgentActivity = {
+      id: 'activity-2',
+      kind: 'compose',
+      label: 'Understanding the brief',
+      status: 'running',
+      startedAt: '2026-11-01T10:00:00.000Z'
+    }
+    expect(
+      chooseAgentStatus(thinking, false, 0, 'opencode/glm-5.3-flash-free')
+        .label
+    ).toBe('Understanding the brief')
+    expect(
+      chooseAgentStatus(
+        thinking,
+        false,
+        AGENT_STATUS_CYCLE_MS,
+        'opencode/glm-5.3-flash-free'
+      ).label
+    ).toBe('Thinking through the brief')
   })
 })

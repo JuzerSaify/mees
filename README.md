@@ -1,6 +1,6 @@
 # Mees
 
-Mees is a local-first desktop design agent. It connects to a paid API account you own, streams a complete HTML interface into a live canvas, and keeps each project on your machine.
+Mees is a local-first desktop design agent. It uses a paid API account or an installed paid CLI harness, streams the design into a live canvas, and keeps each project on your machine.
 
 Supported providers:
 
@@ -8,6 +8,11 @@ Supported providers:
 - Claude / Anthropic
 - Gemini / Google
 - DeepSeek
+
+Local paid harnesses:
+
+- Codex CLI
+- OpenCode
 
 ## Run
 
@@ -18,13 +23,13 @@ npm install
 npm run dev
 ```
 
-On first launch, connect at least one provider with its API key. Mees verifies the key by loading the text-model catalog from that account. Model choices are discovered at runtime, so newly released models appear without an application update.
+On first launch, connect at least one API provider with its key or use a supported paid CLI already installed on the same computer. Mees checks the normal executable search path and common installation folders, then discovers the harness's model catalog. Harness authentication remains owned by Codex CLI or OpenCode; Mees never copies that token.
 
 Source checkouts are for development. Run `npm run build` to compile without creating an installer. Windows installers are built only by the tag-triggered GitHub release workflow in `.github/workflows/release.yml`.
 
 The model menu is filtered to direct text-generation families used by the design agent. Retired entries and audio, image, embedding, live, transcription, music and managed-agent models stay out of the selector. Switching models happens inside the composer, with the model name and a compact effort summary on the trigger.
 
-Reasoning effort lives in the same composer menu. Mees exposes each model's native levels, keeps a separate choice per provider model, and maps that choice to the provider's real request control. Models without an adjustable effort setting fall back to their default behavior.
+Reasoning effort lives in the same composer menu. Mees exposes each API or harness model's native levels, keeps a separate choice per model, and maps that choice to the real provider control. Models without an adjustable effort setting fall back to their default behavior.
 
 No API keys are included with this project. Provider usage is billed to the account associated with the key you connect.
 
@@ -32,11 +37,11 @@ No API keys are included with this project. Provider usage is billed to the acco
 
 Download the Windows installer from [GitHub Releases](https://github.com/JuzerSaify/mees/releases/latest). The current installer is unsigned, so Windows SmartScreen may ask for confirmation before running it.
 
-Installed releases check the public GitHub release feed for stable updates. Settings shows the current version, available update, download progress and the restart-and-install action. The release workflow verifies the packaged app, native image runtime and updater manifest before publishing the installer and SHA-256 checksums.
+Installed releases check the public GitHub release feed for stable updates. When one is available, the title bar shows the download action, live progress and the restart-to-install action. Settings keeps the same controls and current version. The release workflow verifies the packaged app, native image runtime and updater manifest before publishing the installer and SHA-256 checksums.
 
 ## Product website
 
-The product website is live at (https://mees-design.vercel.app/).
+The product website is live at [mees-design.vercel.app](https://mees-design.vercel.app/).
 
 ## Security
 
@@ -44,6 +49,7 @@ The product website is live at (https://mees-design.vercel.app/).
 - Windows uses DPAPI, macOS uses Keychain, and Linux requires a protected secret store.
 - Mees refuses to persist keys when only the unprotected Linux fallback is available.
 - Keys are decrypted only in the Electron main process and sent only to the provider selected for a request.
+- Local harness credentials remain in the installed CLI and are never read or stored by Mees.
 - Generated designs run in a sandboxed iframe without same-origin access to the app.
 - Local data files are written with owner-only permissions where the platform supports them.
 
@@ -53,11 +59,11 @@ App data is stored in Electron's per-user data directory. You can open it from *
 
 1. Choose Website, Logo, Vector or Motion in the agent panel, then describe the subject and what the artifact needs to do.
 2. Add optional visual references by dragging and dropping or pasting up to four PNG, JPEG or WebP images into the composer. Reference images are normalized locally before they reach the selected provider.
-3. The request enters one continuous agent loop. The selected model decides whether to answer immediately or call optional tools, and it can make several tool calls in parallel or across multiple turns.
+3. The request enters one continuous agent loop. API models and installed local harnesses use the same Mees tools. The selected model decides whether to answer immediately or call optional tools, and it can make several tool calls in parallel or across multiple turns.
 4. The agent has a native, optional tool set: live web search, source-page reading, direct public-URL reading, real visual-asset fetching, multimodal visual inspection, favicon resolution, claim-to-source evaluation, a single blocking-question tool, browser artifact inspection, image cropping, image optimization, palette extraction and posterized image-to-vector tracing. Tool use is never forced and calls can run in parallel or across multiple agent turns.
 5. Tool results return to the same agent conversation. Search results can be opened for full text, and validated visual assets return exact local embed tokens with creator, license and attribution metadata. On image-capable models, Mees can inspect up to three candidates in a separate bounded multimodal step before using one.
 6. The agent streams the complete standalone artifact for the chosen mode. Fetched third-party assets keep their source page for attribution, and claim evidence is scored for direct support, source quality, freshness and conflicts.
-7. The canvas updates while the document arrives. Review then plays the artifact in a real Electron browser, checks console, resource, accessibility, navigation and overflow failures, captures each responsive viewport, and merges those runtime findings with the local design audit.
+7. The canvas updates while the document arrives. For harnesses that publish their result only after generation completes, Mees applies the artifact in a smooth progressive handoff. Review then plays the artifact in a real Electron browser, checks console, resource, accessibility, navigation and overflow failures, captures each responsive viewport, and merges those runtime findings with the local design audit.
 8. Continue the design in the same conversation, switch providers or models, then open or export the HTML.
 
 The agent status line shows only activity emitted by the main process: provider attempts, model turns, each tool call, artifact writing, browser playback and review. While the agent is working, one compact line cycles through the active tool's real state with a pixel wavefront, step position and live elapsed time. When the run finishes, it becomes a static summary of sources and duration with no disclosure button.
@@ -89,9 +95,11 @@ npm test
 npm run build
 npm run verify:ui
 npm run verify:tools
+npm run verify:harnesses
+npm run verify:updates
 ```
 
-The test suite covers all four provider adapters, native tool-call parsing, multimodal image payloads, live-search fallback, attributable Wikimedia and Wikipedia media, page reading, evidence scoring, content-addressed assets, assistant protocol rules, local history compaction and renderer utilities. `verify:ui` launches the built Electron app with a temporary profile, verifies geometry and zero horizontal overflow, mobile target sizes and toast placement, exercises browser review, reference comparison, design memory, settings and history, and saves screenshots under `.ui-check/`. `verify:tools` runs Website, Logo, Vector and Motion through both review layers, checks the expected render surface and responsive capture count, and includes deliberately broken artifacts to confirm each mode-specific failure is detected.
+The test suite covers all four API adapters, local harness discovery and transport parsing, native tool-call handling, multimodal image payloads, live-search fallback, attributable Wikimedia and Wikipedia media, page reading, evidence scoring, content-addressed assets, assistant protocol rules, local history compaction and renderer utilities. `verify:ui` launches the built Electron app with a temporary profile, verifies geometry and zero horizontal overflow, mobile target sizes and toast placement, exercises browser review, reference comparison, design memory, settings and history, and saves screenshots under `.ui-check/`. `verify:tools` runs Website, Logo, Vector and Motion through both review layers. `verify:harnesses` audits real installed harnesses without using their credentials in the renderer. `verify:updates` verifies the title-bar available, downloading and restart states.
 
 ## Provider assets
 

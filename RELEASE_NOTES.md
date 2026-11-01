@@ -1,25 +1,25 @@
-# Mees 1.1.0
+# Mees 1.2.0
 
-Mees is a local-first desktop design agent that runs on API accounts you own. This release makes the agent workflow more truthful, visually capable and reliable across all four design modes.
+Mees now works with paid local CLI harnesses as well as API accounts. It automatically discovers installed harnesses, resolves their available models and reasoning levels, and keeps credentials inside the tool that owns them.
 
 ## Improvements
 
-- Added a single-line live agent status with an animated pixel wavefront, exact active-tool detail, real step position and elapsed time.
-- Expanded the model picker with strict provider ownership, current-generation filtering, provider-native reasoning effort and accurate model grouping.
-- Added Wikimedia and Wikipedia visual discovery with creator, license and attribution metadata.
-- Added multimodal inspection of up to three fetched visual candidates before generation.
-- Strengthened the agent harness with additional tool rounds, duplicate-result reuse, bounded tool output and richer run metrics.
-- Improved design variety using recent structural, palette and typography signals.
-- Extended responsive preview coverage across Website, Logo, Vector and Motion.
+- Added automatic paid harness discovery for Codex CLI and OpenCode.
+- Added model, image capability and reasoning-effort discovery directly from each installed harness.
+- Codex CLI now selects the model configured by the user and reads its native app-server catalog.
+- OpenCode now reuses the local service, shows the exact models available to the installation and keeps authentication in OpenCode.
+- Added multi-turn Mees tool calls across local harnesses, including parallel tool requests and automatic correction retries.
+- Added progressive canvas handoff for harnesses that publish their final message after the model turn.
+- Moved harness discovery off the startup path so the workspace opens immediately and updates live.
+- Added title-bar update controls for downloading and restarting, with live progress.
+- Added cleaner user-facing agent states and compact harness model labels.
 
 ## Fixes
 
-- Fixed the loader's missing easing token, which had invalidated the animation.
-- Fixed visual results being ordered by byte size instead of subject relevance.
-- Fixed visual discovery stopping before later usable sources.
-- Removed unrelated, fair-use and favicon-only media from general artwork results.
-- Removed stale and cross-provider models from provider menus.
-- Removed the Refine menu and its unused interaction path.
-- Fixed mobile toast placement and undersized composer controls.
+- Fixed raw harness tool markup appearing in the agent transcript.
+- Fixed local tool loops stopping when closing transport tags were omitted.
+- Fixed reasoning-only harness replies being accepted as completed designs.
+- Fixed silent startup delays while local harnesses were discovered.
+- Fixed update actions requiring repeated trips to Settings.
 
-Download `Mees-Setup-1.1.0.exe` from this release. The installer is unsigned, so Windows SmartScreen may ask you to confirm the publisher before installation.
+Download `Mees-Setup-1.2.0.exe` from this release. The installer is unsigned, so Windows SmartScreen may ask you to confirm the publisher before installation.

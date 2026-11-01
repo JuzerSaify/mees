@@ -60,6 +60,8 @@ export function App(): React.JSX.Element {
 
   useEffect(() => {
     void loadState()
+    const unsubscribe = window.mees?.onSettingsChanged(setSnapshot)
+    return () => unsubscribe?.()
   }, [])
 
   if (loading && !snapshot) return <OpeningScreen />

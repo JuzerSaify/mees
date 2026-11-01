@@ -133,6 +133,6 @@ export function scheduleAutomaticUpdateCheck(): void {
   if (!app.isPackaged) return
   const timer = setTimeout(() => {
     void checkForUpdates()
-  }, 7_000)
+  }, 3_000)
   timer.unref()
 }

@@ -20,6 +20,7 @@ import {
 } from '../../../shared/effort'
 import { filterModelCatalog } from '../../../shared/model-catalog'
 import { errorMessage } from '../lib/errors'
+import { compactModelName } from '../lib/format'
 import { ProviderMark } from './ProviderMark'
 
 interface ModelPickerProps {
@@ -27,22 +28,6 @@ interface ModelPickerProps {
   onOpenSettings: () => void
   onSnapshot: (snapshot: AppSnapshot) => void
   snapshot: AppSnapshot
-}
-
-function compactModelName(provider: ProviderId, name: string): string {
-  const withoutProvider =
-    provider === 'anthropic'
-      ? name.replace(/^Claude\s+/i, '')
-      : provider === 'google'
-        ? name.replace(/^Gemini\s+/i, '')
-        : provider === 'deepseek'
-          ? name.replace(/^DeepSeek[-\s]*/i, '')
-          : name
-  const normalized =
-    provider === 'deepseek'
-      ? withoutProvider.replace(/[-_]+/g, ' ')
-      : withoutProvider
-  return normalized.replace(/\s+/g, ' ').trim()
 }
 
 export function ModelPicker({
@@ -75,15 +60,16 @@ export function ModelPicker({
     (model) => model.id === activeModel
   )
   const effortSupport =
-    activeProvider && activeModel
-      ? getEffortSupport(activeProvider, activeModel)
+    activeProvider && activeModel && activeModelInfo
+      ? getEffortSupport(activeProvider, activeModel, activeModelInfo)
       : null
   const activeEffort =
     activeProvider && activeModel
       ? normalizeEffort(
           activeProvider,
           activeModel,
-          snapshot.settings.activeEffort
+          snapshot.settings.activeEffort,
+          activeModelInfo
         )
       : null
   const activeEffortOption =

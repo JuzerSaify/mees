@@ -221,6 +221,7 @@ try {
     cwd: root,
     env: {
       ...process.env,
+      MEES_DISABLE_HARNESS_DISCOVERY: '1',
       MEES_USER_DATA_DIR: userData
     }
   })

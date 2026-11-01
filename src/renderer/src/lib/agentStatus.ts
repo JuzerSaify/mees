@@ -106,6 +106,9 @@ export function agentStatusOptions(
   designStarted: boolean,
   modelName?: string
 ): string[] {
+  if (designStarted) {
+    return ARTIFACT_AGENT_STATUSES
+  }
   if (activity) {
     return Array.from(
       new Set([
@@ -117,9 +120,7 @@ export function agentStatusOptions(
   if (!designStarted && modelName) {
     return [`Waiting for ${modelName}`, ...DEFAULT_AGENT_STATUSES]
   }
-  return designStarted
-    ? ARTIFACT_AGENT_STATUSES
-    : DEFAULT_AGENT_STATUSES
+  return DEFAULT_AGENT_STATUSES
 }
 
 export function chooseAgentStatus(

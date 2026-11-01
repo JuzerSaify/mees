@@ -32,6 +32,7 @@ export function ProviderForm({
   onSnapshot
 }: ProviderFormProps): React.JSX.Element {
   const definition = PROVIDER_DEFINITIONS[provider]
+  const isHarness = definition.source === 'harness'
   const [open, setOpen] = useState(false)
   const [editingKey, setEditingKey] = useState(false)
   const [apiKey, setApiKey] = useState('')
@@ -138,7 +139,91 @@ export function ProviderForm({
 
       {open ? (
         <div className="provider-details" id={`provider-details-${provider}`}>
-          {status.connected && !editingKey ? (
+          {isHarness ? (
+            status.connected ? (
+              <div className="connected-summary">
+                <div className="connected-meta">
+                  <span className="connected-label">Detected locally</span>
+                  <span>{status.harnessVersion ?? 'Installed CLI harness'}</span>
+                  <span title={status.harnessPath}>
+                    {status.harnessPath
+                      ? status.harnessPath.split(/[\\/]/).pop()
+                      : 'Credentials stay in the CLI'}
+                  </span>
+                  {status.verifiedAt ? (
+                    <span>Checked {formatUpdatedAt(status.verifiedAt)}</span>
+                  ) : null}
+                </div>
+                <div className="field-group">
+                  <label htmlFor={`model-${provider}`}>Model</label>
+                  <select
+                    className="select-control"
+                    disabled={busy === 'model'}
+                    id={`model-${provider}`}
+                    onChange={(event) => void selectModel(event.target.value)}
+                    value={selectedModel?.id ?? ''}
+                  >
+                    {status.models.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="provider-actions">
+                  <button
+                    className="text-button"
+                    disabled={Boolean(busy)}
+                    onClick={() => void refresh()}
+                    type="button"
+                  >
+                    <RefreshCw
+                      aria-hidden="true"
+                      className={busy === 'refresh' ? 'spin' : ''}
+                      size={14}
+                    />
+                    Refresh models
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="connected-summary">
+                <div className="connected-meta">
+                  <span className="connected-label">Not detected</span>
+                  <span>
+                    Install or sign in to {definition.name}, then scan again.
+                  </span>
+                </div>
+                <div className="provider-actions">
+                  <button
+                    className="text-button"
+                    disabled={Boolean(busy)}
+                    onClick={() => void refresh()}
+                    type="button"
+                  >
+                    <RefreshCw
+                      aria-hidden="true"
+                      className={busy === 'refresh' ? 'spin' : ''}
+                      size={14}
+                    />
+                    Scan again
+                  </button>
+                  {definition.installUrl ? (
+                    <button
+                      className="inline-link"
+                      onClick={() =>
+                        void window.mees?.openExternal(definition.installUrl!)
+                      }
+                      type="button"
+                    >
+                      Install guide
+                      <ExternalLink aria-hidden="true" size={12} />
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            )
+          ) : status.connected && !editingKey ? (
             <div className="connected-summary">
               <div className="connected-meta">
                 <span className="connected-label">Connected</span>
@@ -235,7 +320,11 @@ export function ProviderForm({
               <div className="provider-form-footer">
                 <button
                   className="inline-link"
-                  onClick={() => void window.mees?.openExternal(definition.keyUrl)}
+                  onClick={() => {
+                    if (definition.keyUrl) {
+                      void window.mees?.openExternal(definition.keyUrl)
+                    }
+                  }}
                   type="button"
                 >
                   Get {definition.id === 'openai' ? 'an' : 'a'} {definition.name} key

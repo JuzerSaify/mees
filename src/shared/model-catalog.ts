@@ -19,14 +19,18 @@ const MAX_MODELS: Record<ProviderId, number> = {
   openai: 16,
   anthropic: 8,
   google: 12,
-  deepseek: 6
+  deepseek: 6,
+  codex: 24,
+  opencode: 80
 }
 
 const MAX_AGE_DAYS: Record<ProviderId, number> = {
   openai: 365,
   anthropic: 540,
   google: 540,
-  deepseek: 730
+  deepseek: 730,
+  codex: Number.MAX_SAFE_INTEGER,
+  opencode: Number.MAX_SAFE_INTEGER
 }
 
 function isRetired(model: ModelInfo): boolean {
@@ -114,6 +118,9 @@ export function isRelevantDesignModel(
       return GEMINI_TEXT_FAMILY.test(id) && !GEMINI_NON_CHAT.test(id)
     case 'deepseek':
       return DEEPSEEK_TEXT_FAMILY.test(id) && !DEEPSEEK_NON_CHAT.test(id)
+    case 'codex':
+    case 'opencode':
+      return true
     default:
       return false
   }
@@ -123,6 +130,27 @@ export function filterModelCatalog(
   provider: ProviderId,
   models: ModelInfo[]
 ): ModelInfo[] {
+  if (provider === 'codex' || provider === 'opencode') {
+    const seen = new Set<string>()
+    return models
+      .filter(
+        (model) =>
+          model.provider === provider &&
+          model.id.trim().length > 0 &&
+          !isRetired(model)
+      )
+      .filter((model) => {
+        if (seen.has(model.id)) return false
+        seen.add(model.id)
+        return true
+      })
+      .slice(0, MAX_MODELS[provider])
+      .map((model) => ({
+        ...model,
+        provider
+      }))
+  }
+
   const seen = new Set<string>()
   const ids = new Set(models.map((model) => model.id))
   const relevant = models

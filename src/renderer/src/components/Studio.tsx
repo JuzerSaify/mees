@@ -58,6 +58,7 @@ import {
 import { PreviewCanvas } from './PreviewCanvas'
 import { ProjectHistoryDialog } from './ProjectHistoryDialog'
 import { SettingsDialog } from './SettingsDialog'
+import { UpdateAction } from './UpdateAction'
 
 interface StudioProps {
   onSnapshot: (snapshot: AppSnapshot) => void
@@ -1107,11 +1108,6 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
     const provider = snapshot.settings.activeProvider
     const model = snapshot.settings.activeModel
     if (!provider || !model) throw new Error('Connect a model before sending a brief.')
-    const effort = normalizeEffort(
-      provider,
-      model,
-      snapshot.settings.activeEffort
-    )
     const designMode =
       options?.designMode ?? project.designMode ?? selectedDesignMode
     const providerStatus = snapshot.settings.providers.find(
@@ -1121,6 +1117,12 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
     if (!providerStatus?.connected || !modelInfo) {
       throw new Error('Choose an available model in the agent panel.')
     }
+    const effort = normalizeEffort(
+      provider,
+      model,
+      snapshot.settings.activeEffort,
+      modelInfo
+    )
 
     const now = Date.now()
     const userMessage: ChatMessage | null = appendUser
@@ -1712,6 +1714,7 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
             {hasUpdate ? <span aria-hidden="true" className="update-indicator" /> : null}
           </button>
         </div>
+        <UpdateAction />
         <div className="topbar-window-space" />
       </header>
 

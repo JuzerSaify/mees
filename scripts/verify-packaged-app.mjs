@@ -36,6 +36,8 @@ try {
     args: [`--user-data-dir=${userData}`],
     env: {
       ...process.env,
+      MEES_DISABLE_HARNESS_DISCOVERY: '1',
+      MEES_ALLOW_ISOLATED_USER_DATA: '1',
       MEES_USER_DATA_DIR: userData
     },
     timeout: 45_000

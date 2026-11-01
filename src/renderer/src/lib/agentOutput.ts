@@ -29,6 +29,58 @@ function stripPartialMarker(value: string): string {
     .trimEnd()
 }
 
+export function stripHarnessTransportMarkup(raw: string): string {
+  if (!/<mees_tool_call>/i.test(raw)) return raw
+
+  const ranges: Array<{ start: number; end: number }> = []
+  const opening = /<mees_tool_call>/gi
+  let match: RegExpExecArray | null
+  while ((match = opening.exec(raw))) {
+    const jsonStart = raw.indexOf('{', opening.lastIndex)
+    if (jsonStart < 0) break
+
+    let depth = 0
+    let inString = false
+    let escaped = false
+    let jsonEnd = -1
+    for (let index = jsonStart; index < raw.length; index += 1) {
+      const character = raw[index]
+      if (inString) {
+        if (escaped) escaped = false
+        else if (character === '\\') escaped = true
+        else if (character === '"') inString = false
+        continue
+      }
+      if (character === '"') inString = true
+      else if (character === '{') depth += 1
+      else if (character === '}') {
+        depth -= 1
+        if (depth === 0) {
+          jsonEnd = index + 1
+          break
+        }
+      }
+    }
+    if (jsonEnd < 0) break
+
+    let end = jsonEnd
+    const trailing = /^(?:\s*<\/(?:mees_tool_call|arg_value|tool_call)>)+/i
+    const trailingMatch = trailing.exec(raw.slice(end))
+    if (trailingMatch) end += trailingMatch[0].length
+    ranges.push({ start: match.index, end })
+    opening.lastIndex = end
+  }
+
+  let cleaned = raw
+  for (const range of ranges.reverse()) {
+    cleaned = cleaned.slice(0, range.start) + cleaned.slice(range.end)
+  }
+  return cleaned
+    .replace(/<\/?(?:mees_tool_call|arg_value|tool_call)>/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 export function parseAgentOutput(raw: string): ParsedAgentOutput {
   if (!raw.trim()) {
     return { narrative: '', designHtml: '', designStarted: false }
