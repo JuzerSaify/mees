@@ -11,6 +11,10 @@ const GEMINI_NON_CHAT =
 const ANTHROPIC_TEXT_FAMILY = /^claude-/i
 const DEEPSEEK_TEXT_FAMILY = /^deepseek-/i
 const DEEPSEEK_NON_CHAT = /(?:embedding|audio|transcri|image)/i
+const OPENAI_EXCLUDED_GENERATIONS = /^gpt-5[.-](?:5|6)(?:-|$)/i
+const ANTHROPIC_EXCLUDED_GENERATIONS =
+  /^claude-(?:(?:[a-z]+)-)*(?:4[.-]8|5(?:[.-]0)?(?![-_.]?\d))(?:-|$)/i
+const GEMINI_ALLOWED_MODELS = /^gemini-(?:4-argon|3[.-]8-flash)$/i
 const DATED_SNAPSHOT =
   /(?:[-_](?:20\d{2}[-_]?\d{2}[-_]?\d{2}|20\d{6})|-\d{6})$/i
 const ALIAS_SUFFIX = /-(?:latest|preview)$/i
@@ -21,7 +25,8 @@ const MAX_MODELS: Record<ProviderId, number> = {
   google: 12,
   deepseek: 6,
   codex: 24,
-  opencode: 80
+  opencode: 80,
+  agy: 24
 }
 
 const MAX_AGE_DAYS: Record<ProviderId, number> = {
@@ -30,7 +35,8 @@ const MAX_AGE_DAYS: Record<ProviderId, number> = {
   google: 540,
   deepseek: 730,
   codex: Number.MAX_SAFE_INTEGER,
-  opencode: Number.MAX_SAFE_INTEGER
+  opencode: Number.MAX_SAFE_INTEGER,
+  agy: Number.MAX_SAFE_INTEGER
 }
 
 function isRetired(model: ModelInfo): boolean {
@@ -108,6 +114,12 @@ export function isRelevantDesignModel(
   if (!id || model.provider !== provider || isRetired(model) || !isCurrent(model, provider)) {
     return false
   }
+  if (provider === 'openai' && OPENAI_EXCLUDED_GENERATIONS.test(id)) {
+    return false
+  }
+  if (provider === 'anthropic' && ANTHROPIC_EXCLUDED_GENERATIONS.test(id)) {
+    return false
+  }
   if (DATED_SNAPSHOT.test(id) || ALIAS_SUFFIX.test(id)) return false
   switch (provider) {
     case 'openai':
@@ -115,11 +127,16 @@ export function isRelevantDesignModel(
     case 'anthropic':
       return ANTHROPIC_TEXT_FAMILY.test(id)
     case 'google':
-      return GEMINI_TEXT_FAMILY.test(id) && !GEMINI_NON_CHAT.test(id)
+      return (
+        GEMINI_TEXT_FAMILY.test(id) &&
+        !GEMINI_NON_CHAT.test(id) &&
+        GEMINI_ALLOWED_MODELS.test(id)
+      )
     case 'deepseek':
       return DEEPSEEK_TEXT_FAMILY.test(id) && !DEEPSEEK_NON_CHAT.test(id)
     case 'codex':
     case 'opencode':
+    case 'agy':
       return true
     default:
       return false
@@ -130,7 +147,7 @@ export function filterModelCatalog(
   provider: ProviderId,
   models: ModelInfo[]
 ): ModelInfo[] {
-  if (provider === 'codex' || provider === 'opencode') {
+  if (provider === 'codex' || provider === 'opencode' || provider === 'agy') {
     const seen = new Set<string>()
     return models
       .filter(

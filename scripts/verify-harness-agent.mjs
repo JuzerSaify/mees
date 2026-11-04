@@ -25,7 +25,11 @@ try {
     { timeout: 15_000 }
   )
 
-  const result = await page.evaluate(async () => {
+  const requestedModel = process.env.MEES_HARNESS_MODEL?.trim() ?? ''
+  const requestedProvider =
+    process.env.MEES_HARNESS_PROVIDER?.trim() || 'opencode'
+  const requestedPrompt = process.env.MEES_HARNESS_PROMPT?.trim() ?? ''
+  const result = await page.evaluate(async ({ requestedModel, requestedProvider, requestedPrompt }) => {
     const delay = (ms) =>
       new Promise((resolve) => setTimeout(resolve, ms))
     let state = await window.mees.getState()
@@ -33,7 +37,7 @@ try {
       if (
         state.settings.providers.some(
           (provider) =>
-            provider.provider === 'opencode' &&
+            provider.provider === requestedProvider &&
             provider.available &&
             provider.models.length > 0
         )
@@ -44,34 +48,74 @@ try {
       state = await window.mees.getState()
     }
 
-    const openCode = state.settings.providers.find(
-      (provider) => provider.provider === 'opencode'
+    const harness = state.settings.providers.find(
+      (provider) => provider.provider === requestedProvider
     )
-    if (!openCode?.available || openCode.models.length === 0) {
-      throw new Error('OpenCode was not discovered by Mees.')
+    if (!harness?.available || harness.models.length === 0) {
+      throw new Error(`${requestedProvider} was not discovered by Mees.`)
     }
     const model =
-      openCode.models.find((entry) =>
-        /glm-5\.3-flash-free/i.test(entry.id)
-      ) ?? openCode.models[0]
+      (requestedModel
+        ? harness.models.find((entry) => entry.id === requestedModel)
+        : requestedProvider === 'agy'
+          ? harness.models.find((entry) =>
+              /gemini-3\.8-flash/i.test(entry.id)
+            )
+          : harness.models.find((entry) =>
+              /deepseek-v4\.1-flash-free/i.test(entry.id)
+            )) ?? harness.models[0]
 
     await window.mees.savePreferences({
       onboardingComplete: true,
-      activeProvider: 'opencode',
+      activeProvider: requestedProvider,
       activeModel: model.id
     })
 
     const streamed = []
     const activity = []
+    const activityTimings = new Map()
+    const startedAt = performance.now()
+    let firstDeltaMs = null
+    let firstActivityMs = null
     const requestId = await new Promise((resolve, reject) => {
       const unsubscribe = window.mees.onAgentEvent((event) => {
-        if (event.type === 'delta') streamed.push(event.delta)
+        if (event.type === 'delta') {
+          if (firstDeltaMs === null) {
+            firstDeltaMs = Math.round(performance.now() - startedAt)
+          }
+          streamed.push(event.delta)
+        }
         if (event.type === 'activity') {
+          if (firstActivityMs === null) {
+            firstActivityMs = Math.round(performance.now() - startedAt)
+          }
           activity.push(`${event.activity.status}: ${event.activity.label}`)
+          activityTimings.set(event.activity.id, {
+            kind: event.activity.kind,
+            label: event.activity.label,
+            status: event.activity.status,
+            detail: event.activity.detail,
+            startedAt: event.activity.startedAt,
+            finishedAt: event.activity.finishedAt,
+            durationMs: event.activity.durationMs
+          })
         }
         if (event.type === 'done') {
           unsubscribe()
-          resolve({ status: 'done', usage: event.usage, metrics: event.metrics })
+          resolve({
+            status: 'done',
+            usage: event.usage,
+            metrics: event.metrics,
+            elapsedMs: Math.round(performance.now() - startedAt),
+            firstActivityMs,
+            firstDeltaMs,
+            deltaCount: streamed.length,
+            streamedChars: streamed.reduce(
+              (total, chunk) => total + chunk.length,
+              0
+            ),
+            activities: [...activityTimings.values()]
+          })
         }
         if (event.type === 'error') {
           unsubscribe()
@@ -84,12 +128,13 @@ try {
       })
       window.mees
         .startAgent({
-          provider: 'opencode',
+          provider: requestedProvider,
           model: model.id,
           history: [
             {
               role: 'user',
               content:
+                requestedPrompt ||
                 'Create a compact single-screen website titled "Schibsted Grotesk". Call resolve_site_icon once for schibsted.com, use the returned icon, and then return the complete website. Do not call any other tool.'
             }
           ],
@@ -107,6 +152,7 @@ try {
     })
     return {
       ...requestId,
+      provider: requestedProvider,
       model: model.id,
       activity,
       streamed,
@@ -122,7 +168,7 @@ try {
           /:::\s*design\b|<!doctype\s+html\b|<html\b/i.test(value)
       )
     }
-  })
+  }, { requestedModel, requestedProvider, requestedPrompt })
 
   await application.close()
   application = null

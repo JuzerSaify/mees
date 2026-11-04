@@ -6,6 +6,7 @@ import {
   parseDesignTitle,
   parseEditPatch,
   parseEditPatchOutput,
+  parseEditPatches,
   stripHarnessTransportMarkup,
   textBytes
 } from './agentOutput'
@@ -101,6 +102,31 @@ describe('targeted element output', () => {
       replacement: '<h2 class="title">Clearer</h2>',
       styles: '.title{max-width:18ch}',
       note: 'Shortened the heading.'
+    })
+  })
+
+  it('parses multiple selected-element patches by selector', () => {
+    const parsed = parseEditPatches(
+      JSON.stringify({
+        patches: [
+          {
+            selector: 'main > h1',
+            replacement: '<h1>New heading</h1>',
+            note: 'Updated heading.'
+          },
+          {
+            selector: 'main > p',
+            replacement: '<p>New copy</p>',
+            styles: 'main > p{max-width:42ch}',
+            note: 'Updated copy.'
+          }
+        ]
+      })
+    )
+    expect(parsed).toHaveLength(2)
+    expect(parsed[1]).toMatchObject({
+      selector: 'main > p',
+      replacement: '<p>New copy</p>'
     })
   })
 

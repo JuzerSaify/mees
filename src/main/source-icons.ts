@@ -1,7 +1,15 @@
 import type { ResearchSource } from '../shared/types'
 import type { AssetStore } from './asset-store'
 
-const iconCache = new Map<string, string | null>()
+export interface ResolvedSiteIcon {
+  host: string
+  token: string
+  sourceUrl: string
+  contentType: string
+  byteLength: number
+}
+
+const iconCache = new Map<string, ResolvedSiteIcon | null>()
 const MAX_ICON_BYTES = 320_000
 
 function hostOf(value: string): string {
@@ -73,7 +81,7 @@ async function fetchIcon(url: string): Promise<{
 async function iconForHost(
   host: string,
   assets: AssetStore
-): Promise<string | null> {
+): Promise<ResolvedSiteIcon | null> {
   const cached = iconCache.get(host)
   if (cached !== undefined) return cached
   const encoded = encodeURIComponent(host)
@@ -90,14 +98,35 @@ async function iconForHost(
         icon.contentType,
         'reference'
       )
-      iconCache.set(host, stored.token)
-      return stored.token
+      const resolved = {
+        host,
+        token: stored.token,
+        sourceUrl: candidate,
+        contentType: stored.contentType,
+        byteLength: stored.byteLength
+      }
+      iconCache.set(host, resolved)
+      return resolved
     } catch {
       continue
     }
   }
   iconCache.set(host, null)
   return null
+}
+
+export async function resolveSiteIcon(
+  site: string,
+  assets: AssetStore
+): Promise<ResolvedSiteIcon | null> {
+  const value = site.trim()
+  if (!value) return null
+  const url = /^[a-z][a-z0-9+.-]*:\/\//i.test(value)
+    ? value
+    : `https://${value}`
+  const host = hostOf(url)
+  if (!host || !host.includes('.')) return null
+  return iconForHost(host, assets)
 }
 
 export async function attachSourceIcons(
@@ -109,7 +138,10 @@ export async function attachSourceIcons(
   )
   const icons = new Map(
     await Promise.all(
-      hosts.map(async (host) => [host, await iconForHost(host, assets)] as const)
+      hosts.map(async (host) => {
+        const icon = await iconForHost(host, assets)
+        return [host, icon?.token ?? null] as const
+      })
     )
   )
   return sources.map((source) => {

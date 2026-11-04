@@ -1,13 +1,19 @@
 import {
   AlertCircle,
   CheckCircle2,
-  Clock3,
+  LayoutGrid,
   MessageSquare,
   Plus,
   Settings2,
   X
 } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties
+} from 'react'
 import {
   type AgentStreamEvent,
   type AgentActivity,
@@ -29,11 +35,11 @@ import {
   hydrateFetchedAssets,
   parseAgentOutput,
   parseDesignTitle,
-  parseEditPatch,
   parseEditPatchOutput,
+  parseEditPatches,
   textBytes
 } from '../lib/agentOutput'
-import { applyDesignPatch } from '../lib/designPatch'
+import { applyDesignPatches } from '../lib/designPatch'
 import {
   applyDesignMemoryReview,
   buildRecentDesignCandidates,
@@ -42,7 +48,6 @@ import {
 import {
   auditArtifactDesign,
   fingerprintDesign,
-  formatAuditForAgent,
   mergeRuntimeArtifactReport
 } from '../lib/designAudit'
 import { addDesignVersion } from '../lib/designVersions'
@@ -197,12 +202,19 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
   const [inspectorTab, setInspectorTab] = useState<InspectorTab | null>(null)
   const [auditRunningFor, setAuditRunningFor] = useState<string | null>(null)
   const [auditError, setAuditError] = useState('')
-  const [selectedTarget, setSelectedTarget] =
-    useState<DesignSelection | null>(null)
+  const [selectedTargets, setSelectedTargets] = useState<DesignSelection[]>([])
   const [selectedDesignMode, setSelectedDesignMode] =
     useState<DesignMode>(snapshot.projects[0]?.designMode ?? 'website')
   const [exporting, setExporting] = useState(false)
   const [updateState, setUpdateState] = useState<AppUpdateState | null>(null)
+  const [agentPanelWidth, setAgentPanelWidth] = useState(() => {
+    const stored = Number(
+      window.localStorage.getItem('mees.agent-panel-width')
+    )
+    return Number.isFinite(stored) && stored >= 284 && stored <= 520
+      ? stored
+      : 332
+  })
 
   const projectsRef = useRef(projects)
   const runRef = useRef<AgentRunView | null>(null)
@@ -211,6 +223,10 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
   const toastTimerRef = useRef<number | null>(null)
   const cancelRequestedRef = useRef(false)
   const auditSequenceRef = useRef(0)
+  const panelResizeRef = useRef<{
+    startX: number
+    startWidth: number
+  } | null>(null)
   const settingsRef = useRef(snapshot.settings)
   const fingerprintCacheRef = useRef(
     new Map<string, { revision: number; fingerprint: DesignFingerprint }>()
@@ -219,9 +235,6 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
   const activeProject =
     projects.find((project) => project.id === activeProjectId) ?? null
   const isGenerating = run?.status === 'starting' || run?.status === 'streaming'
-  const isAuditingActive =
-    Boolean(activeProjectId) && auditRunningFor === activeProjectId
-
   const commitRun = useCallback((next: AgentRunView | null) => {
     runRef.current = next
     setRun(next)
@@ -230,6 +243,13 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
   useEffect(() => {
     settingsRef.current = snapshot.settings
   }, [snapshot.settings])
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      'mees.agent-panel-width',
+      String(agentPanelWidth)
+    )
+  }, [agentPanelWidth])
 
   useEffect(() => {
     let active = true
@@ -258,20 +278,6 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current)
     setToast({ id: Date.now(), kind, message })
     toastTimerRef.current = window.setTimeout(() => setToast(null), 4200)
-  }, [])
-
-  const clearSelectedTarget = useCallback(() => {
-    setSelectedTarget(null)
-  }, [])
-
-  const requestTargetEdit = useCallback(() => {
-    setAgentDrawerOpen(true)
-    window.setTimeout(() => {
-      const textarea = document.querySelector<HTMLTextAreaElement>(
-        '.agent-panel textarea'
-      )
-      textarea?.focus()
-    }, 80)
   }, [])
 
   const persistProject = useCallback(
@@ -536,7 +542,13 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
                 : 'Writing the live canvas',
             detail:
               activeRun.mode === 'targeted-edit'
-                ? `Changing ${activeRun.target?.label ?? 'the selected element'}`
+                ? (activeRun.targets?.length ?? 0) > 1
+                  ? `Changing ${activeRun.targets?.length} selected elements`
+                  : `Changing ${
+                      activeRun.targets?.[0]?.label ??
+                      activeRun.target?.label ??
+                      'the selected element'
+                    }`
                 : 'Streaming the responsive document into the preview',
             status: 'running' as const,
             startedAt: new Date().toISOString()
@@ -773,24 +785,32 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
 
         if (currentRun.mode === 'targeted-edit') {
           try {
-            if (!currentRun.target) {
-              throw new Error('The selected element is no longer available.')
+            const targets = currentRun.targets?.length
+              ? currentRun.targets
+              : currentRun.target
+                ? [currentRun.target]
+                : []
+            if (targets.length === 0) {
+              throw new Error('The selected elements are no longer available.')
             }
             const editOutput = parseEditPatchOutput(rawRef.current)
             if (!editOutput.patchStarted) {
               throw new Error('The agent did not return a targeted edit.')
             }
-            const patch = parseEditPatch(editOutput.patchSource)
+            const patches = parseEditPatches(
+              editOutput.patchSource,
+              targets[0]?.selector
+            )
             const baseProject = projectsRef.current.find(
               (project) => project.id === currentRun.projectId
             )
             if (!baseProject) {
               throw new Error('The design being edited is no longer available.')
             }
-            const patched = applyDesignPatch(
+            const patched = applyDesignPatches(
               baseProject.designHtml,
-              currentRun.target,
-              patch
+              targets,
+              patches
             )
             const finalDesign = hydrateFetchedAssets(
               patched,
@@ -826,7 +846,9 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
                         message.id === currentRun.assistantMessageId
                           ? {
                               ...message,
-                              content: patch.note,
+                              content: patches
+                                .map((patch) => patch.note)
+                                .join(' '),
                               status: 'complete',
                               ...(event.metrics
                                 ? {
@@ -843,7 +865,7 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
                     }
               )
             )
-            setSelectedTarget(null)
+            setSelectedTargets([])
             const completed = nextProjects.find(
               (project) => project.id === currentRun.projectId
             )
@@ -1098,12 +1120,15 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
       mode?: 'design' | 'polish' | 'targeted-edit'
       designMode?: DesignMode
       reviewNotes?: string
-      target?: DesignSelection
+      targets?: DesignSelection[]
       referenceImages?: AgentReferenceImage[]
     }
   ): Promise<void> {
     if (runRef.current && ['starting', 'streaming'].includes(runRef.current.status)) {
       throw new Error('The agent is already working.')
+    }
+    if ((options?.mode ?? 'design') !== 'targeted-edit') {
+      setSelectedTargets([])
     }
     const provider = snapshot.settings.activeProvider
     const model = snapshot.settings.activeModel
@@ -1133,7 +1158,8 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
           createdAt: new Date(now).toISOString(),
           status: 'complete',
           designMode,
-          target: options?.target,
+          target: options?.targets?.[0],
+          targets: options?.targets,
           ...(options?.referenceImages?.length
             ? {
                 referenceImages: options.referenceImages,
@@ -1227,7 +1253,7 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
       designStarted: false,
       mode: options?.mode ?? 'design',
       designMode,
-      target: options?.target,
+      targets: options?.targets,
       baselineIssueCount: project.audit?.issueCount,
       assets: [],
       activities: [],
@@ -1270,7 +1296,7 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
         designMode,
         mode: options?.mode ?? 'design',
         reviewNotes: options?.reviewNotes,
-        target: options?.target,
+        targets: options?.targets,
         recentDesigns,
         referenceVisuals,
         designMemory
@@ -1323,7 +1349,6 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
 
   async function sendPrompt(
     text: string,
-    target: DesignSelection | null = null,
     referenceImages: AgentReferenceImage[] = []
   ): Promise<void> {
     let project = activeProject
@@ -1349,10 +1374,21 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
       }
     }
     await generate(project, text, true, {
-      mode: target ? 'targeted-edit' : 'design',
+      mode: 'design',
       designMode: selectedDesignMode,
-      target: target ?? undefined,
       referenceImages
+    })
+  }
+
+  async function applyTargetEdits(
+    targets: DesignSelection[],
+    instruction: string
+  ): Promise<void> {
+    if (!activeProject || targets.length === 0 || !instruction.trim()) return
+    await generate(activeProject, instruction.trim(), true, {
+      mode: 'targeted-edit',
+      designMode: activeProject.designMode,
+      targets
     })
   }
 
@@ -1361,7 +1397,7 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
     setInspectorTab(tab)
     setAuditError('')
     if (
-      (tab === 'review' || tab === 'reference' || tab === 'memory') &&
+      (tab === 'reference' || tab === 'memory') &&
       (activeProject.audit?.revision !== activeProject.revision ||
         !activeProject.audit) &&
       auditRunningFor !== activeProject.id
@@ -1373,21 +1409,6 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
         true
       )
     }
-  }
-
-  function fixMeasuredIssues(): void {
-    if (!activeProject || isGenerating) return
-    if (activeProject.audit?.revision !== activeProject.revision) return
-    const reviewNotes = formatAuditForAgent(activeProject.audit)
-    setInspectorTab('review')
-    void generate(
-      activeProject,
-      'Repair the measured review issues and keep the established direction.',
-      true,
-      { mode: 'polish', reviewNotes }
-    ).catch((caught: unknown) => {
-      showToast(errorMessage(caught), 'error')
-    })
   }
 
   function restoreVersion(versionId: string): void {
@@ -1415,7 +1436,7 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
       updatedAt: now
     }
     commitRun(null)
-    setSelectedTarget(null)
+    setSelectedTargets([])
     updateProjects((current) =>
       current.map((project) =>
         project.id === restoredProject.id ? restoredProject : project
@@ -1475,7 +1496,7 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
     setActiveProjectId(null)
     setAgentDrawerOpen(false)
     setInspectorTab(null)
-    setSelectedTarget(null)
+    setSelectedTargets([])
     setAuditError('')
   }
 
@@ -1489,7 +1510,7 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
     if (selected) setSelectedDesignMode(selected.designMode)
     setHistoryOpen(false)
     setAgentDrawerOpen(false)
-    setSelectedTarget(null)
+    setSelectedTargets([])
     setAuditError('')
   }
 
@@ -1505,7 +1526,7 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
         if (nextProject) setSelectedDesignMode(nextProject.designMode)
         commitRun(null)
         setInspectorTab(null)
-        setSelectedTarget(null)
+        setSelectedTargets([])
       }
     } catch (caught) {
       showToast(errorMessage(caught), 'error')
@@ -1694,14 +1715,14 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
 
         <div className="mobile-topbar-actions">
           <button
-            aria-label="Open saved designs"
+            aria-label="Open design library"
             className="icon-button"
-            data-tooltip="Designs"
+            data-tooltip="Library"
             disabled={isGenerating}
             onClick={() => setHistoryOpen(true)}
             type="button"
           >
-            <Clock3 aria-hidden="true" size={16} />
+            <LayoutGrid aria-hidden="true" size={16} />
           </button>
           <button
             aria-label={hasUpdate ? 'Open settings, update available' : 'Open settings'}
@@ -1718,7 +1739,14 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
         <div className="topbar-window-space" />
       </header>
 
-      <div className="studio-body">
+      <div
+        className="studio-body"
+        style={
+          {
+            '--agent-panel-width': `${agentPanelWidth}px`
+          } as CSSProperties
+        }
+      >
         <nav aria-label="Workspace" className="app-rail">
           <div className="rail-group">
             <button
@@ -1732,14 +1760,14 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
               <Plus aria-hidden="true" size={18} />
             </button>
             <button
-              aria-label="Saved designs"
+              aria-label="Library"
               className="icon-button rail-button"
-              data-tooltip="Saved designs"
+              data-tooltip="Library"
               disabled={isGenerating}
               onClick={() => setHistoryOpen(true)}
               type="button"
             >
-              <Clock3 aria-hidden="true" size={17} />
+              <LayoutGrid aria-hidden="true" size={17} />
             </button>
           </div>
           <div className="rail-group">
@@ -1761,11 +1789,10 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
           isGenerating={isGenerating}
           isMobileOpen={agentDrawerOpen}
           onCloseMobile={() => setAgentDrawerOpen(false)}
-          onClearTarget={clearSelectedTarget}
           onDesignModeChange={(mode) => {
             setSelectedDesignMode(mode)
             commitRun(null)
-            setSelectedTarget(null)
+            setSelectedTargets([])
             setInspectorTab(null)
           }}
           onOpenSettings={() => setSettingsOpen(true)}
@@ -1775,9 +1802,82 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
           onStop={stopGeneration}
           project={activeProject}
           run={run}
-          selectedTarget={selectedTarget}
           snapshot={snapshot}
         />
+        <div
+          aria-label="Resize agent and preview panels"
+          aria-orientation="vertical"
+          aria-valuemax={520}
+          aria-valuemin={284}
+          aria-valuenow={agentPanelWidth}
+          className="studio-resizer"
+          onDoubleClick={() => setAgentPanelWidth(332)}
+          onKeyDown={(event) => {
+            if (event.key === 'Home') {
+              event.preventDefault()
+              setAgentPanelWidth(284)
+            } else if (event.key === 'End') {
+              event.preventDefault()
+              setAgentPanelWidth(
+                Math.max(284, Math.min(520, window.innerWidth - 560))
+              )
+            } else if (
+              event.key === 'ArrowLeft' ||
+              event.key === 'ArrowRight'
+            ) {
+              event.preventDefault()
+              const direction = event.key === 'ArrowLeft' ? -1 : 1
+              setAgentPanelWidth((current) =>
+                Math.max(
+                  284,
+                  Math.min(
+                    520,
+                    Math.min(window.innerWidth - 560, current + direction * 12)
+                  )
+                )
+              )
+            }
+          }}
+          onPointerDown={(event) => {
+            if (event.button !== 0) return
+            event.currentTarget.setPointerCapture(event.pointerId)
+            panelResizeRef.current = {
+              startX: event.clientX,
+              startWidth: agentPanelWidth
+            }
+          }}
+          onPointerMove={(event) => {
+            const origin = panelResizeRef.current
+            if (!origin) return
+            const maximum = Math.max(
+              284,
+              Math.min(520, window.innerWidth - 560)
+            )
+            setAgentPanelWidth(
+              Math.max(
+                284,
+                Math.min(
+                  maximum,
+                  origin.startWidth + event.clientX - origin.startX
+                )
+              )
+            )
+          }}
+          onPointerUp={(event) => {
+            panelResizeRef.current = null
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+              event.currentTarget.releasePointerCapture(event.pointerId)
+            }
+          }}
+          onPointerCancel={() => {
+            panelResizeRef.current = null
+          }}
+          role="separator"
+          tabIndex={0}
+          title="Drag to resize. Double-click to reset."
+        >
+          <span aria-hidden="true" />
+        </div>
         {agentDrawerOpen ? (
           <button
             aria-label="Close agent panel"
@@ -1789,41 +1889,27 @@ export function Studio({ onSnapshot, snapshot }: StudioProps): React.JSX.Element
 
         <div className="canvas-column">
           <PreviewCanvas
-            auditing={isAuditingActive}
             designMode={selectedDesignMode}
             exporting={exporting}
             inspectorOpen={Boolean(inspectorTab)}
+            onApplyTargetEdits={applyTargetEdits}
             onExport={() => void exportDesign()}
             onOpenInspector={openInspector}
             onOpenPreview={() => void openPreview()}
-            onRequestTargetEdit={requestTargetEdit}
             onRetry={() => void retryLast()}
-            onSelectTarget={setSelectedTarget}
+            onSelectTargets={setSelectedTargets}
             project={activeProject}
             run={run}
-            selectedTarget={selectedTarget}
+            selectedTargets={selectedTargets}
           />
           {inspectorTab && activeProject ? (
             <DesignInspector
               activeTab={inspectorTab}
-              auditError={auditError}
-              auditing={isAuditingActive}
               designMemory={snapshot.designMemory}
               isGenerating={isGenerating}
               onClose={() => setInspectorTab(null)}
               onDeleteMemory={deleteDesignMemoryEntry}
-              onFixIssues={fixMeasuredIssues}
               onRestoreVersion={restoreVersion}
-              onRunReview={() =>
-                void runReview(
-                  activeProject.id,
-                  activeProject.designHtml,
-                  activeProject.revision,
-                  true,
-                  undefined,
-                  activeProject.audit?.issueCount
-                )
-              }
               onSaveReference={saveReferenceMemory}
               onSaveMemory={saveCurrentDesignMemory}
               onTabChange={openInspector}

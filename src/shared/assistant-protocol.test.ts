@@ -60,6 +60,10 @@ describe('assistant protocol', () => {
     expect(prompt).toContain('between 3 and 15 seconds')
     expect(prompt).toContain('No audio')
     expect(prompt).toContain('one <canvas>')
+    expect(prompt).toContain('directed film, not a demonstration of code')
+    expect(prompt).toContain('cinematic continuity')
+    expect(prompt).toContain('three coordinated layers')
+    expect(prompt).toContain('inspect_artifact')
   })
 
   it('includes a concrete anti-slop design contract', () => {
@@ -98,6 +102,36 @@ describe('assistant protocol', () => {
     expect(prompt).toContain('Return the complete replacement for only this one element')
     expect(prompt).toContain('Do not introduce an eyebrow label')
     expect(prompt).not.toContain('This full document must not be sent again.')
+  })
+
+  it('returns a coordinated patch contract for multiple selected elements', () => {
+    const prompt = buildSystemPrompt({
+      currentDesign: '<main><h1>Old</h1><p>Copy</p></main>',
+      mode: 'targeted-edit',
+      purpose: 'targeted-edit',
+      targets: [
+        {
+          selector: 'main > h1',
+          tag: 'h1',
+          label: 'h1 - Old',
+          text: 'Old',
+          html: '<h1>Old</h1>'
+        },
+        {
+          selector: 'main > p',
+          tag: 'p',
+          label: 'p - Copy',
+          text: 'Copy',
+          html: '<p>Copy</p>'
+        }
+      ],
+      now
+    })
+
+    expect(prompt).toContain(':::patches')
+    expect(prompt).toContain('main > h1')
+    expect(prompt).toContain('main > p')
+    expect(prompt).toContain('exactly one patch for every selected selector')
   })
 
   it('adds recent structural memory so new designs do not repeat themselves', () => {

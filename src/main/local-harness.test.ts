@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  parseAgyModelLines,
   parseOpenCodeModelLines,
-  parseToolCallBlocks
+  parseToolCallBlocks,
+  visibleHarnessText
 } from './local-harness'
 
 describe('local harness discovery', () => {
@@ -21,9 +23,97 @@ describe('local harness discovery', () => {
     ])
     expect(models.every((model) => model.provider === 'opencode')).toBe(true)
   })
+
+  it('adds OpenCode effort support from its model metadata cache', () => {
+    const models = parseOpenCodeModelLines(
+      'opencode/beam-free\nopencode/big-pickle',
+      {
+        opencode: {
+          models: {
+            'beam-free': {
+              name: 'Beam Free',
+              reasoning_options: [
+                {
+                  type: 'effort',
+                  values: ['low', 'medium', 'high', 'xhigh', 'max']
+                }
+              ]
+            },
+            'big-pickle': {
+              name: 'Big Pickle',
+              reasoning_options: []
+            }
+          }
+        }
+      }
+    )
+
+    expect(models[0]).toMatchObject({
+      id: 'opencode/beam-free',
+      name: 'Beam Free',
+      reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      defaultEffort: 'medium'
+    })
+    expect(models[1]?.reasoningEfforts).toBeUndefined()
+  })
+
+  it('groups AGY effort variants into one clean model entry', () => {
+    const models = parseAgyModelLines(`
+      Fetching available models...
+      gemini-3.8-flash-high	Gemini 3.8 Flash (High)
+      gemini-3.8-flash-medium	Gemini 3.8 Flash (Medium)
+      gemini-3.8-flash-low	Gemini 3.8 Flash (Low)
+      claude-sonnet-4-6	Claude Sonnet 4.6 (Thinking)
+      gpt-oss-120b-medium	GPT-OSS 120B (Medium)
+    `)
+
+    expect(models.map((model) => model.id)).toEqual([
+      'gemini-3.8-flash',
+      'claude-sonnet-4-6',
+      'gpt-oss-120b'
+    ])
+    expect(models[0]).toMatchObject({
+      name: 'Gemini 3.8 Flash',
+      provider: 'agy',
+      defaultEffort: 'medium'
+    })
+    expect(models[0]?.reasoningEfforts).toEqual([
+      'low',
+      'medium',
+      'high'
+    ])
+    expect(models[2]).toMatchObject({
+      id: 'gpt-oss-120b',
+      reasoningEfforts: ['medium'],
+      defaultEffort: 'medium'
+    })
+    expect(
+      models.find((model) => model.id === 'claude-sonnet-4-6')
+        ?.reasoningEfforts
+    ).toBeUndefined()
+  })
 })
 
 describe('local harness tool bridge', () => {
+  it('streams prose and design text without exposing tool transport markup', () => {
+    expect(visibleHarnessText('<mees_tool_c')).toBe('')
+    expect(
+      visibleHarnessText(
+        'Collecting evidence.\n<mees_tool_call>{"name":"search_web"'
+      )
+    ).toBe('Collecting evidence.\n')
+    expect(
+      visibleHarnessText(
+        'Building the page.\n<mees_tool_call>{"name":"search_web","arguments":{}}'
+      )
+    ).toBe('Building the page.\n')
+    expect(
+      visibleHarnessText(
+        'Done.\n<mees_tool_call>{"name":"search_web","arguments":{}}</mees_tool_call>\n:::design\n<html></html>\n:::'
+      )
+    ).toBe('Done.\n\n:::design\n<html></html>\n:::')
+  })
+
   it('accepts multiple known tool calls and removes their transport markup', () => {
     const parsed = parseToolCallBlocks(
       [

@@ -289,6 +289,94 @@ describe('agent tools', () => {
     expect(result.question?.options).toHaveLength(3)
   })
 
+  it('turns Motion runtime captures into a real visual review', async () => {
+    const frameToken = `mees-asset://asset/${'d'.repeat(64)}.png`
+    const bytes = await sharp({
+      create: {
+        width: 32,
+        height: 18,
+        channels: 4,
+        background: { r: 20, g: 28, b: 24, alpha: 1 }
+      }
+    })
+      .png()
+      .toBuffer()
+    let inspectedFrames = 0
+    let reviewQuestion = ''
+    const result = await executeAgentTool(
+      {
+        id: 'inspect-motion',
+        name: 'inspect_artifact',
+        arguments: {}
+      },
+      {
+        sources: [],
+        assets: [],
+        designMode: 'motion',
+        currentDesign: '<canvas></canvas>',
+        readAsset: async () => ({ bytes, contentType: 'image/png' }),
+        inspectArtifact: async () => ({
+          capturedAt: new Date().toISOString(),
+          durationMs: 18,
+          consoleErrors: [],
+          pageErrors: [],
+          networkFailures: [],
+          issues: [],
+          screenshots: [
+            {
+              viewport: 'desktop',
+              width: 1280,
+              height: 720,
+              assetUrl: frameToken,
+              createdAt: new Date().toISOString(),
+              label: 'Opening',
+              time: 0
+            },
+            {
+              viewport: 'desktop',
+              width: 1280,
+              height: 720,
+              assetUrl: frameToken,
+              createdAt: new Date().toISOString(),
+              label: 'Midpoint',
+              time: 3
+            },
+            {
+              viewport: 'desktop',
+              width: 1280,
+              height: 720,
+              assetUrl: frameToken,
+              createdAt: new Date().toISOString(),
+              label: 'Final',
+              time: 5.96
+            }
+          ],
+          document: {
+            title: 'Direction study',
+            language: 'en',
+            headings: [],
+            landmarks: [],
+            controls: 0,
+            links: 0,
+            images: 0,
+            forms: 0
+          }
+        }),
+        inspectVisuals: async (input) => {
+          inspectedFrames = input.assets.length
+          reviewQuestion = input.question
+          return 'The frames share one camera path, but the final title needs more contrast.'
+        }
+      },
+      new AbortController().signal
+    )
+
+    expect(inspectedFrames).toBe(3)
+    expect(reviewQuestion).toContain('film director')
+    expect(result.content).toContain('one camera path')
+    expect(result.content).toContain('"label":"Opening"')
+  })
+
   it('runs artifact inspection and every image transformation tool', async () => {
     const sourceToken = `mees-asset://asset/${'b'.repeat(64)}.png`
     const bytes = await sharp({

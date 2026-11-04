@@ -1,4 +1,8 @@
-import type { DesignSelection, EditPatch } from '../../../shared/types'
+import type {
+  DesignSelection,
+  EditPatch,
+  TargetedEditPatch
+} from '../../../shared/types'
 
 function parseReplacement(value: string): Element {
   const template = document.createElement('template')
@@ -36,5 +40,49 @@ export function applyDesignPatch(
     documentNode.head.appendChild(style)
   }
 
+  return `<!doctype html>\n${documentNode.documentElement.outerHTML}`
+}
+
+export function applyDesignPatches(
+  html: string,
+  targets: DesignSelection[],
+  patches: TargetedEditPatch[]
+): string {
+  if (targets.length === 0) {
+    throw new Error('No selected elements are available for this edit.')
+  }
+  const expected = new Set(targets.map((target) => target.selector))
+  const returned = new Set(patches.map((patch) => patch.selector))
+  if (
+    returned.size !== expected.size ||
+    [...expected].some((selector) => !returned.has(selector))
+  ) {
+    throw new Error('The edit did not return one patch for every selected element.')
+  }
+
+  const documentNode = new DOMParser().parseFromString(html, 'text/html')
+  const ordered = [...patches].sort(
+    (left, right) =>
+      right.selector.split('>').length - left.selector.split('>').length
+  )
+  for (const patch of ordered) {
+    let selected: Element | null = null
+    try {
+      selected = documentNode.querySelector(patch.selector)
+    } catch {
+      throw new Error(`The selected element ${patch.selector} is not valid.`)
+    }
+    if (!selected) {
+      throw new Error(`The selected element ${patch.selector} is no longer present.`)
+    }
+    const replacement = parseReplacement(patch.replacement)
+    selected.replaceWith(documentNode.importNode(replacement, true))
+    if (patch.styles?.trim()) {
+      const style = documentNode.createElement('style')
+      style.setAttribute('data-mees-edit-target', patch.selector)
+      style.textContent = patch.styles.trim()
+      documentNode.head.appendChild(style)
+    }
+  }
   return `<!doctype html>\n${documentNode.documentElement.outerHTML}`
 }

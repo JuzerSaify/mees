@@ -44,7 +44,6 @@ import {
 } from '../lib/designFiles'
 
 export type InspectorTab =
-  | 'review'
   | 'reference'
   | 'memory'
   | 'versions'
@@ -52,15 +51,11 @@ export type InspectorTab =
 
 interface DesignInspectorProps {
   activeTab: InspectorTab
-  auditError: string
-  auditing: boolean
   designMemory: DesignMemoryEntry[]
   isGenerating: boolean
   onClose: () => void
   onDeleteMemory: (entryId: string) => Promise<void>
-  onFixIssues: () => void
   onRestoreVersion: (versionId: string) => void
-  onRunReview: () => void
   onSaveReference: (image: AgentReferenceImage) => Promise<void>
   onSaveMemory: () => Promise<void>
   onTabChange: (tab: InspectorTab) => void
@@ -188,7 +183,8 @@ function ReviewView({
             <span className="review-runtime-stamp">
               Browser playback completed in{' '}
               {(currentAudit.runtime.durationMs / 1000).toFixed(1)}s with{' '}
-              {currentAudit.runtime.screenshots.length} captured view
+              {currentAudit.runtime.screenshots.length} captured{' '}
+              {currentAudit.mode === 'motion' ? 'frame' : 'view'}
               {currentAudit.runtime.screenshots.length === 1 ? '' : 's'};{' '}
               {currentAudit.runtime.consoleErrors.length === 0 &&
               currentAudit.runtime.pageErrors.length === 0 &&
@@ -992,15 +988,11 @@ function MemoryView({
 
 export function DesignInspector({
   activeTab,
-  auditError,
-  auditing,
   designMemory,
   isGenerating,
   onClose,
   onDeleteMemory,
-  onFixIssues,
   onRestoreVersion,
-  onRunReview,
   onSaveReference,
   onSaveMemory,
   onTabChange,
@@ -1018,18 +1010,6 @@ export function DesignInspector({
     <aside aria-label="Design tools" className="design-inspector">
       <header className="inspector-header">
         <div aria-label="Design tools" className="inspector-tabs" role="tablist">
-          <button
-            aria-controls="design-tools-panel"
-            aria-selected={activeTab === 'review'}
-            className={activeTab === 'review' ? 'is-active' : ''}
-            id="review-tab"
-            onClick={() => onTabChange('review')}
-            role="tab"
-            type="button"
-          >
-            <ScanSearch aria-hidden="true" size={14} />
-            Review
-          </button>
           <button
             aria-controls="design-tools-panel"
             aria-selected={activeTab === 'reference'}
@@ -1091,12 +1071,10 @@ export function DesignInspector({
       </header>
       <div
         aria-labelledby={
-          activeTab === 'review'
-            ? 'review-tab'
-            : activeTab === 'reference'
-              ? 'reference-tab'
-              : activeTab === 'memory'
-                ? 'memory-tab'
+          activeTab === 'reference'
+            ? 'reference-tab'
+            : activeTab === 'memory'
+              ? 'memory-tab'
             : activeTab === 'versions'
               ? 'versions-tab'
               : 'files-tab'
@@ -1105,17 +1083,7 @@ export function DesignInspector({
         id="design-tools-panel"
         role="tabpanel"
       >
-        {activeTab === 'review' ? (
-          <ReviewView
-            audit={project.audit}
-            auditError={auditError}
-            auditing={auditing}
-            isGenerating={isGenerating}
-            onFixIssues={onFixIssues}
-            onRunReview={onRunReview}
-            project={project}
-          />
-        ) : activeTab === 'reference' ? (
+        {activeTab === 'reference' ? (
           <ReferenceView
             onSaveReference={onSaveReference}
             project={project}

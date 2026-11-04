@@ -273,13 +273,10 @@ export function ModelPicker({
               >
                 {effortSupport.options.map((option) => {
                   const selected = option.value === activeEffort
-                  const loading = busyEffort === option.value
                   return (
                     <button
                       aria-checked={selected}
-                      className={`model-effort-option ${
-                        selected ? 'is-selected' : ''
-                      }`}
+                      className={selected ? 'is-selected' : ''}
                       disabled={Boolean(busyEffort)}
                       key={option.value}
                       onClick={() => void chooseEffort(option.value)}
@@ -287,7 +284,7 @@ export function ModelPicker({
                       title={option.description}
                       type="button"
                     >
-                      {loading ? (
+                      {busyEffort === option.value ? (
                         <LoaderCircle
                           aria-hidden="true"
                           className="spin"

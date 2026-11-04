@@ -22,6 +22,9 @@ export function compactModelName(
       .replace(/#.*$/, '')
       .replace(/[-_]+/g, ' ')
   }
+  if (provider === 'agy') {
+    value = value.replace(/^(?:Claude|Gemini)\s+/i, '')
+  }
 
   const labels: Record<string, string> = {
     ai: 'AI',

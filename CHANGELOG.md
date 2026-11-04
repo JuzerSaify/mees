@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.4.0 - 2026-11-05
+
+### Improvements
+
+- Added first-class AGY CLI support with local discovery, native stream-json parsing, model selection, image references and the full Mees tool loop.
+- Added model-exact effort controls for AGY and OpenCode. AGY Gemini exposes Low, Medium and High; GPT-OSS uses its supported Medium default; AGY Claude models correctly omit the unsupported effort control.
+- OpenCode now reads its local model metadata and routes effort through native model variants, with no effort controls shown for models that do not support them.
+- Simplified provider and model names in the composer and menus, including compact AGY labels such as `3.8 Flash`.
+- Added draggable preview-panel resizing from the left divider and sharper layout zoom for fine text, borders and interface details.
+- Added multi-element selection and targeted inline editing so only the chosen DOM regions are revised.
+- Added a wider Settings dialog with compact text-only sections for model sources, agent behavior, updates and storage.
+- Improved the agent stream with safe progressive output, partial tool-markup suppression and a clearer authoritative tool bridge across API and local harness models.
+- Reworked the design library around mode categories and compact visual previews, and simplified generated-file listings to names and file-type icons.
+
+### Fixes
+
+- Fixed AGY runs stopping with `Unsupported provider: agy`.
+- Removed unsupported AGY Max and X-High effort choices and corrected model-specific effort ranges.
+- Fixed OpenCode effort controls being missing when the model metadata advertised reasoning variants.
+- Fixed partial `<mees_tool_call>` markup leaking into the agent transcript.
+- Fixed favicon resolution returning an unrelated website image instead of the exact requested host.
+- Fixed scaled previews looking soft by switching to browser layout zoom while preserving selected-element coordinates.
+- Removed the obsolete Review and Preview Size surfaces, including their empty or unreachable interaction states.
+
 ## 1.2.0 - 2026-11-01
 
 ### Improvements

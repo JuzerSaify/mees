@@ -42,7 +42,7 @@ const modes: Array<{
   {
     id: 'motion',
     label: 'Motion',
-    description: 'Silent video rendered from code',
+    description: 'Directed, frame-accurate silent film',
     icon: Clapperboard
   }
 ]

@@ -1,11 +1,13 @@
 import {
   ArrowDownToLine,
+  Bot,
   FolderOpen,
   LoaderCircle,
   LockKeyhole,
   RefreshCw,
   RotateCcw,
   ShieldCheck,
+  SlidersHorizontal,
   X
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -24,12 +26,37 @@ interface SettingsDialogProps {
   snapshot: AppSnapshot
 }
 
+type SettingsSectionId = 'sources' | 'agent' | 'updates' | 'storage'
+
+const settingsSections: Array<{
+  id: SettingsSectionId
+  label: string
+}> = [
+  {
+    id: 'sources',
+    label: 'Model sources'
+  },
+  {
+    id: 'agent',
+    label: 'Agent'
+  },
+  {
+    id: 'updates',
+    label: 'Updates'
+  },
+  {
+    id: 'storage',
+    label: 'Storage'
+  }
+]
+
 export function SettingsDialog({
   onClose,
   onSnapshot,
   snapshot
 }: SettingsDialogProps): React.JSX.Element {
-  const [busy, setBusy] = useState(false)
+  const [activeSection, setActiveSection] =
+    useState<SettingsSectionId>('sources')
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState('')
   const [updateBusy, setUpdateBusy] = useState(false)
@@ -49,21 +76,6 @@ export function SettingsDialog({
       unsubscribe?.()
     }
   }, [])
-
-  async function toggleReview(): Promise<void> {
-    setBusy(true)
-    setError('')
-    try {
-      const next = await window.mees?.savePreferences({
-        reviewAfterBuild: !snapshot.settings.reviewAfterBuild
-      })
-      if (next) onSnapshot(next)
-    } catch (caught) {
-      setError(errorMessage(caught))
-    } finally {
-      setBusy(false)
-    }
-  }
 
   async function scanHarnesses(): Promise<void> {
     if (scanning) return
@@ -140,15 +152,10 @@ export function SettingsDialog({
     updateState.status === 'checking' ||
     updateState.status === 'downloading' ||
     updateState.status === 'unsupported'
-  const availableProviders = snapshot.settings.providers.filter(
-    (provider) =>
-      PROVIDER_DEFINITIONS[provider.provider].source === 'api' ||
-      provider.available
-  )
-  const apiProviders = availableProviders.filter(
+  const apiProviders = snapshot.settings.providers.filter(
     (provider) => PROVIDER_DEFINITIONS[provider.provider].source === 'api'
   )
-  const harnessProviders = availableProviders.filter(
+  const harnessProviders = snapshot.settings.providers.filter(
     (provider) => PROVIDER_DEFINITIONS[provider.provider].source === 'harness'
   )
 
@@ -163,7 +170,7 @@ export function SettingsDialog({
         aria-labelledby="settings-title"
         aria-describedby="settings-description"
         aria-modal="true"
-        className="settings-dialog"
+        className="settings-dialog settings-dialog-wide"
         ref={dialogRef}
         role="dialog"
         tabIndex={-1}
@@ -185,16 +192,45 @@ export function SettingsDialog({
           </button>
         </header>
 
-        <div className="dialog-scroll">
-          <section className="settings-section" aria-labelledby="sources-title">
-            <div className="settings-label">
+        <div className="settings-layout">
+          <nav aria-label="Settings sections" className="settings-nav" role="tablist">
+            {settingsSections.map((section) => {
+              return (
+                <button
+                  aria-controls={`settings-panel-${section.id}`}
+                  aria-selected={activeSection === section.id}
+                  className={activeSection === section.id ? 'is-active' : ''}
+                  id={`settings-tab-${section.id}`}
+                  key={section.id}
+                  onClick={() => {
+                    setError('')
+                    setActiveSection(section.id)
+                  }}
+                  role="tab"
+                  type="button"
+                >
+                  {section.label}
+                </button>
+              )
+            })}
+          </nav>
+
+          <div className="settings-content">
+          {activeSection === 'sources' ? (
+          <section
+            aria-labelledby="sources-title"
+            className="settings-pane"
+            id="settings-panel-sources"
+            role="tabpanel"
+          >
+            <header className="settings-pane-header">
               <h3 id="sources-title">Model sources</h3>
               <p>
-                API keys stay encrypted on this device. Local harnesses keep their own
-                credentials and billing.
+                Connect paid API accounts or use a locally signed-in CLI. Keys
+                remain encrypted on this device.
               </p>
-            </div>
-            <div className="settings-panel provider-settings-panel">
+            </header>
+            <div className="settings-panel provider-settings-panel settings-panel-large">
               <div className="provider-group-label">API accounts</div>
               {apiProviders.map((status) => (
                 <ProviderForm
@@ -207,7 +243,7 @@ export function SettingsDialog({
               ))}
               {harnessProviders.length ? (
                 <>
-                  <div className="provider-group-label">Detected paid harnesses</div>
+                  <div className="provider-group-label">Local harnesses</div>
                   {harnessProviders.map((status) => (
                   <ProviderForm
                     key={status.provider}
@@ -236,48 +272,72 @@ export function SettingsDialog({
               </div>
             </div>
           </section>
+          ) : null}
 
-          <section className="settings-section" aria-labelledby="behavior-title">
-            <div className="settings-label">
-              <h3 id="behavior-title">Agent behavior</h3>
-              <p>Questions and research are decided by the agent for each request.</p>
-            </div>
-            <div className="settings-panel">
-              <button
-                aria-checked={snapshot.settings.reviewAfterBuild}
-                className="settings-switch-row"
-                disabled={busy}
-                onClick={() => void toggleReview()}
-                role="switch"
-                type="button"
-              >
-                <span>
-                  <span className="settings-row-title">
-                    {busy ? (
-                      <LoaderCircle aria-hidden="true" className="spin" size={14} />
-                    ) : null}
-                    Measure every draft
+          {activeSection === 'agent' ? (
+            <section
+              aria-labelledby="behavior-title"
+              className="settings-pane"
+              id="settings-panel-agent"
+              role="tabpanel"
+            >
+              <header className="settings-pane-header">
+                <h3 id="behavior-title">Agent</h3>
+                <p>
+                  Mees decides when research, file inspection or a clarifying
+                  question will materially improve the result.
+                </p>
+              </header>
+              <div className="settings-panel settings-behavior-list">
+                <div className="settings-behavior-row">
+                  <SlidersHorizontal aria-hidden="true" size={17} />
+                  <span>
+                    <span className="settings-row-title">Tool selection</span>
+                    <span className="settings-row-description">
+                      Chosen per request from the full Mees tool set.
+                    </span>
                   </span>
-                  <span className="settings-row-description">
-                    Check desktop, tablet and mobile layouts locally after each build.
+                  <strong>Automatic</strong>
+                </div>
+                <div className="settings-behavior-row">
+                  <RefreshCw aria-hidden="true" size={17} />
+                  <span>
+                    <span className="settings-row-title">Live research</span>
+                    <span className="settings-row-description">
+                      Current facts and media are checked whenever the brief needs them.
+                    </span>
                   </span>
-                </span>
-                <span className="toggle-track">
-                  <span className="toggle-thumb" />
-                </span>
-              </button>
-            </div>
-          </section>
+                  <strong>Available</strong>
+                </div>
+                <div className="settings-behavior-row">
+                  <Bot aria-hidden="true" size={17} />
+                  <span>
+                    <span className="settings-row-title">Clarifying questions</span>
+                    <span className="settings-row-description">
+                      Asked only when a missing decision would change the work.
+                    </span>
+                  </span>
+                  <strong>When needed</strong>
+                </div>
+              </div>
+            </section>
+          ) : null}
 
-          <section className="settings-section" aria-labelledby="updates-title">
-            <div className="settings-label">
-              <h3 id="updates-title">App updates</h3>
-              <p>
-                Mees checks the public GitHub release feed and installs the next
-                Windows version when you choose to restart.
-              </p>
-            </div>
-            <div className="settings-panel update-panel">
+          {activeSection === 'updates' ? (
+            <section
+              aria-labelledby="updates-title"
+              className="settings-pane"
+              id="settings-panel-updates"
+              role="tabpanel"
+            >
+              <header className="settings-pane-header">
+                <h3 id="updates-title">App updates</h3>
+                <p>
+                  Mees checks the public GitHub release feed and can install the
+                  next version without leaving the app.
+                </p>
+              </header>
+              <div className="settings-panel update-panel settings-panel-large">
               <div className="update-status">
                 <span className="update-version">
                   Mees {updateState?.currentVersion ?? '...'}
@@ -316,15 +376,25 @@ export function SettingsDialog({
                 )}
                 {updateAction}
               </button>
-            </div>
-          </section>
+              </div>
+            </section>
+          ) : null}
 
-          <section className="settings-section" aria-labelledby="storage-title">
-            <div className="settings-label">
-              <h3 id="storage-title">Local storage</h3>
-              <p>Projects and model discovery data stay in the app data directory.</p>
-            </div>
-            <div className="settings-panel storage-panel">
+          {activeSection === 'storage' ? (
+            <section
+              aria-labelledby="storage-title"
+              className="settings-pane"
+              id="settings-panel-storage"
+              role="tabpanel"
+            >
+              <header className="settings-pane-header">
+                <h3 id="storage-title">Local storage</h3>
+                <p>
+                  Projects, versions, references and model discovery data stay
+                  in the app data directory.
+                </p>
+              </header>
+              <div className="settings-panel storage-panel settings-panel-large">
               <div className="storage-line">
                 <ShieldCheck aria-hidden="true" size={17} />
                 <div>
@@ -355,9 +425,11 @@ export function SettingsDialog({
                   Open
                 </button>
               </div>
-            </div>
-          </section>
+              </div>
+            </section>
+          ) : null}
           {error ? <p className="field-error settings-error">{error}</p> : null}
+          </div>
         </div>
       </section>
     </div>

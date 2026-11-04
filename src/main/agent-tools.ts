@@ -57,6 +57,13 @@ export interface AgentToolState {
       attribution?: string
     }
   ) => Promise<FetchedVisualAsset>
+  resolveSiteIcon?: (site: string) => Promise<{
+    host: string
+    token: string
+    sourceUrl: string
+    contentType: string
+    byteLength: number
+  } | null>
   inspectArtifact?: (html: string) => Promise<ArtifactRuntimeReport>
   inspectVisuals?: (
     input: {
@@ -196,7 +203,7 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
   {
     name: 'inspect_artifact',
     description:
-      'Run the current artifact in a real browser, inspect its DOM, accessibility, console, resources and responsive overflow, and capture screenshots. Use this when revising an existing artifact and runtime evidence would prevent a bad repair.',
+      'Run the current artifact in a real browser, inspect its DOM, accessibility, console, resources and responsive overflow, then capture opening, midpoint and final Motion frames when relevant. When the active model supports vision, inspect the captured frames for composition, subject match, depth, legibility and generated-looking visual shortcuts. Use this when revising an existing artifact and runtime evidence would prevent a bad repair.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -715,14 +722,33 @@ export async function executeAgentTool(
         ? call.arguments.site.trim()
         : ''
     if (!site) throw new Error('resolve_site_icon needs a site name or URL.')
-    const assets = (
-      await fetchWebAssets(`${site} official favicon logo icon`, signal)
-    )
-      .sort((left, right) => {
-        if (left.kind !== right.kind) return left.kind === 'icon' ? -1 : 1
-        return (right.width ?? 0) - (left.width ?? 0)
-      })
-      .slice(0, 2)
+    const resolved = await state.resolveSiteIcon?.(site)
+    let assets: FetchedVisualAsset[] = []
+    if (resolved) {
+      const assetData = await state.readAsset?.(resolved.token)
+      assets = [
+        {
+          id: resolved.token.split('/').pop()?.replace(/\.[^.]+$/, '') ??
+            resolved.host,
+          token: resolved.token,
+          kind: 'icon',
+          title: `${resolved.host} icon`,
+          description: `Official favicon resolved directly for ${resolved.host}.`,
+          pageUrl: `https://${resolved.host}/`,
+          sourceUrl: resolved.sourceUrl,
+          contentType: resolved.contentType,
+          byteLength: resolved.byteLength,
+          width: 64,
+          height: 64,
+          dataUrl: assetData
+            ? `data:${assetData.contentType};base64,${assetData.bytes.toString('base64')}`
+            : resolved.token,
+          role: 'asset',
+          provider: 'web-page',
+          creator: resolved.host
+        }
+      ]
+    }
     return {
       ...description,
       assets,
@@ -803,23 +829,94 @@ export async function executeAgentTool(
     if (!state.inspectArtifact) {
       throw new Error('The browser inspector is unavailable in this environment.')
     }
+    const mode = state.designMode ?? 'website'
     const report = await state.inspectArtifact(state.currentDesign)
+    let visualReview = ''
+    let visualReviewError = ''
+    if (
+      state.inspectVisuals &&
+      state.readAsset &&
+      report.screenshots.length > 0
+    ) {
+      try {
+        const captures = (
+          await Promise.all(
+            report.screenshots.slice(0, 3).map(async (screenshot, index) => {
+              const input = await state.readAsset?.(screenshot.assetUrl)
+              if (!input) return null
+              const asset: FetchedVisualAsset = {
+                id: `artifact-frame-${index + 1}`,
+                token: screenshot.assetUrl,
+                kind: 'image',
+                title:
+                  screenshot.label ||
+                  `${screenshot.viewport} artifact capture ${index + 1}`,
+                description: `Runtime capture${
+                  screenshot.time !== undefined
+                    ? ` at ${screenshot.time.toFixed(2)} seconds`
+                    : ''
+                }.`,
+                pageUrl: '',
+                sourceUrl: screenshot.assetUrl,
+                contentType: input.contentType,
+                byteLength: input.bytes.byteLength,
+                width: screenshot.width,
+                height: screenshot.height,
+                dataUrl: screenshot.assetUrl,
+                role: 'screenshot',
+                provider: 'derived'
+              }
+              return { asset, bytes: input.bytes, contentType: input.contentType }
+            })
+          )
+        ).filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+
+        if (captures.length) {
+          const question =
+            mode === 'motion'
+              ? [
+                  'Review these real rendered Motion frames as a film director and visual designer.',
+                  'Name the visual premise you can read from the opening, midpoint and final frame.',
+                  'Check subject identity, focal hierarchy, depth and camera continuity, composition at the frame edges, typography, material and whether the animation implies a meaningful transformation rather than generic particles or effects.',
+                  'Return concise, actionable repair notes. Do not invent details that are not visible.'
+                ].join(' ')
+              : mode === 'logo' || mode === 'vector'
+                ? 'Review the captured artwork for subject specificity, silhouette, optical balance, vector legibility and generic generated-mark shortcuts. Return concise, actionable repair notes.'
+                : 'Review the rendered viewport captures for hierarchy, composition, responsive integrity, readability and generated-looking shortcuts. Return concise, actionable repair notes.'
+          visualReview = await state.inspectVisuals(
+            { assets: captures, question },
+            signal
+          )
+        }
+      } catch (error) {
+        visualReviewError =
+          error instanceof Error
+            ? error.message.slice(0, 240)
+            : 'The visual review could not be completed.'
+      }
+    }
     return {
       ...description,
       content: JSON.stringify({
         tool: call.name,
-        mode: state.designMode ?? 'website',
+        mode,
         duration_ms: report.durationMs,
         document: report.document,
         screenshots: report.screenshots.map((screenshot) => ({
           viewport: screenshot.viewport,
           width: screenshot.width,
-          height: screenshot.height
+          height: screenshot.height,
+          label: screenshot.label,
+          time: screenshot.time
         })),
         console_errors: report.consoleErrors,
         page_errors: report.pageErrors,
         network_failures: report.networkFailures,
-        issues: report.issues.slice(0, 24)
+        issues: report.issues.slice(0, 24),
+        ...(visualReview ? { visual_review: visualReview.slice(0, 8_000) } : {}),
+        ...(visualReviewError
+          ? { visual_review_error: visualReviewError }
+          : {})
       })
     }
   }

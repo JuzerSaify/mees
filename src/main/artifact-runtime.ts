@@ -247,7 +247,7 @@ async function captureViewport(
   consoleErrors: string[]
   pageErrors: string[]
   networkFailures: string[]
-  screenshot?: DesignScreenshot
+  screenshots: DesignScreenshot[]
   document?: ArtifactRuntimeReport['document']
 }> {
   const partition = `mees-runtime-${randomUUID()}`
@@ -310,24 +310,57 @@ async function captureViewport(
     )
     await delay(mode === 'motion' ? 900 : 480)
     const measured = await measurePage(window, viewport, mode)
-    const image = await window.webContents.capturePage()
-    const stored = await assets.saveBytes(
-      image.toPNG(),
-      'image/png',
-      'screenshot'
-    )
+    const screenshotFrames =
+      mode === 'motion'
+        ? await (async () => {
+            const duration = Math.max(
+              3,
+              Number(
+                await window.webContents.executeJavaScript(
+                  'Number(window.MEES_MOTION && window.MEES_MOTION.duration) || 8'
+                )
+              ) || 8
+            )
+            return [
+              { label: 'Opening', time: 0 },
+              { label: 'Midpoint', time: duration / 2 },
+              {
+                label: 'Final',
+                time: Math.max(0, duration - 1 / 30)
+              }
+            ]
+          })()
+        : [{ label: 'Current', time: undefined }]
+    const screenshots: DesignScreenshot[] = []
+    for (const frame of screenshotFrames) {
+      if (mode === 'motion' && frame.time !== undefined) {
+        await window.webContents.executeJavaScript(
+          `(function(){const motion=window.MEES_MOTION;if(!motion)return;motion.pause?.();motion.renderAt(${JSON.stringify(frame.time)});})()`
+        )
+        await delay(40)
+      }
+      const image = await window.webContents.capturePage()
+      const stored = await assets.saveBytes(
+        image.toPNG(),
+        'image/png',
+        'screenshot'
+      )
+      screenshots.push({
+        viewport,
+        width,
+        height,
+        assetUrl: stored.token,
+        createdAt: new Date().toISOString(),
+        label: frame.label,
+        ...(frame.time !== undefined ? { time: frame.time } : {})
+      })
+    }
     return {
       issues: Array.isArray(measured.issues) ? measured.issues : [],
       consoleErrors,
       pageErrors,
       networkFailures,
-      screenshot: {
-        viewport,
-        width,
-        height,
-        assetUrl: stored.token,
-        createdAt: new Date().toISOString()
-      },
+      screenshots,
       document: measured.document
     }
   } catch (error) {
@@ -336,7 +369,13 @@ async function captureViewport(
         ? error.message.slice(0, 500)
         : 'The rendered artifact could not be inspected.'
     )
-    return { issues: [], consoleErrors, pageErrors, networkFailures }
+    return {
+      issues: [],
+      consoleErrors,
+      pageErrors,
+      networkFailures,
+      screenshots: []
+    }
   } finally {
     window.webContents.removeListener('console-message', onConsole)
     window.webContents.removeListener('did-fail-load', onFailedLoad)
@@ -424,9 +463,7 @@ export async function captureArtifactRuntime(
     pageErrors,
     networkFailures,
     issues: runtimeIssues,
-    screenshots: results.flatMap((result) =>
-      result.screenshot ? [result.screenshot] : []
-    ),
+    screenshots: results.flatMap((result) => result.screenshots),
     document: firstDocument ?? {
       title: '',
       language: '',

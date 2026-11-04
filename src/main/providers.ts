@@ -37,6 +37,7 @@ interface StreamRequest {
   mode?: 'design' | 'polish' | 'targeted-edit'
   reviewNotes?: string
   target?: DesignSelection
+  targets?: DesignSelection[]
   recentDesigns?: RecentDesignSummary[]
   referenceVisuals?: ReferenceVisualSummary[]
   designMemory?: DesignMemoryEntry[]
@@ -86,6 +87,7 @@ export interface AgentTurnRequest {
   mode?: 'design' | 'polish' | 'targeted-edit'
   reviewNotes?: string
   target?: DesignSelection
+  targets?: DesignSelection[]
   recentDesigns?: RecentDesignSummary[]
   referenceVisuals?: ReferenceVisualSummary[]
   designMemory?: DesignMemoryEntry[]
@@ -100,6 +102,7 @@ export interface AgentTurnResult {
   text: string
   toolCalls: AgentToolCall[]
   usage: TokenUsage
+  streamedLive?: boolean
 }
 
 export class ProviderRequestError extends Error {
@@ -115,6 +118,98 @@ function asRecord(value: unknown): JsonRecord {
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : []
+}
+
+const geminiSchemaKeys = new Set([
+  'type',
+  'format',
+  'title',
+  'description',
+  'nullable',
+  'enum',
+  'maxItems',
+  'minItems',
+  'properties',
+  'required',
+  'items',
+  'minimum',
+  'maximum',
+  'pattern',
+  'anyOf',
+  'propertyOrdering',
+  'default'
+])
+
+function geminiFunctionSchema(value: unknown): JsonRecord | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  if (Array.isArray(value)) {
+    const items = value
+      .map((entry) => geminiFunctionSchema(entry))
+      .filter((entry): entry is JsonRecord => Boolean(entry))
+    return items.length ? { anyOf: items } : undefined
+  }
+
+  const source = value as JsonRecord
+  const result: JsonRecord = {}
+  for (const [key, entry] of Object.entries(source)) {
+    if (!geminiSchemaKeys.has(key) || entry === undefined) continue
+
+    if (key === 'properties' && entry && typeof entry === 'object') {
+      const properties: JsonRecord = {}
+      for (const [name, schema] of Object.entries(entry as JsonRecord)) {
+        const sanitized = geminiFunctionSchema(schema)
+        if (sanitized) properties[name] = sanitized
+      }
+      result.properties = properties
+      continue
+    }
+
+    if (key === 'items') {
+      const sanitized = geminiFunctionSchema(entry)
+      if (sanitized) result.items = sanitized
+      continue
+    }
+
+    if (key === 'anyOf' && Array.isArray(entry)) {
+      const schemas = entry
+        .map((schema) => geminiFunctionSchema(schema))
+        .filter((schema): schema is JsonRecord => Boolean(schema))
+      if (schemas.length) result.anyOf = schemas
+      continue
+    }
+
+    if (key === 'required' && Array.isArray(entry)) {
+      result.required = entry.filter(
+        (name): name is string => typeof name === 'string'
+      )
+      continue
+    }
+
+    if (key === 'enum' && Array.isArray(entry)) {
+      result.enum = entry.filter(
+        (item) =>
+          typeof item === 'string' ||
+          typeof item === 'number' ||
+          typeof item === 'boolean'
+      )
+      continue
+    }
+
+    if (key === 'type' && Array.isArray(entry)) {
+      const types = entry.filter(
+        (type): type is string => typeof type === 'string'
+      )
+      const nullable = types.includes('null')
+      const concrete = types.find((type) => type !== 'null')
+      if (concrete) result.type = concrete
+      if (nullable) result.nullable = true
+      continue
+    }
+
+    result[key] = entry
+  }
+
+  return Object.keys(result).length ? result : undefined
 }
 
 function toNumber(value: unknown): number | undefined {
@@ -403,6 +498,7 @@ export async function listModels(provider: ProviderId, apiKey: string): Promise<
       return listDeepSeekModels(apiKey)
     case 'codex':
     case 'opencode':
+    case 'agy':
       throw new ProviderRequestError(
         'Local harness models must be refreshed through system discovery.'
       )
@@ -591,6 +687,7 @@ async function runOpenAiAgentTurn(
     externalContext: request.externalContext,
     purpose: request.purpose,
     target: request.target,
+    targets: request.targets,
     recentDesigns: request.recentDesigns,
     referenceVisuals: request.referenceVisuals,
     designMemory: request.designMemory
@@ -832,6 +929,7 @@ async function runAnthropicAgentTurn(
     externalContext: request.externalContext,
     purpose: request.purpose,
     target: request.target,
+    targets: request.targets,
     recentDesigns: request.recentDesigns,
     referenceVisuals: request.referenceVisuals,
     designMemory: request.designMemory
@@ -1042,6 +1140,7 @@ async function runGeminiAgentTurn(
     externalContext: request.externalContext,
     purpose: request.purpose,
     target: request.target,
+    targets: request.targets,
     recentDesigns: request.recentDesigns,
     referenceVisuals: request.referenceVisuals,
     designMemory: request.designMemory
@@ -1080,7 +1179,7 @@ async function runGeminiAgentTurn(
                     functionDeclarations: request.tools.map((tool) => ({
                       name: tool.name,
                       description: tool.description,
-                      parameters: tool.inputSchema
+                      parameters: geminiFunctionSchema(tool.inputSchema)
                     }))
                   }
                 ],
@@ -1228,6 +1327,7 @@ async function runDeepSeekAgentTurn(
     externalContext: request.externalContext,
     purpose: request.purpose,
     target: request.target,
+    targets: request.targets,
     recentDesigns: request.recentDesigns,
     referenceVisuals: request.referenceVisuals,
     designMemory: request.designMemory
@@ -1363,6 +1463,7 @@ export async function runAgentTurn(
       return runDeepSeekAgentTurn(request)
     case 'codex':
     case 'opencode':
+    case 'agy':
       return runLocalHarnessAgentTurn(request)
     default:
       throw new ProviderRequestError(
@@ -1380,6 +1481,7 @@ async function streamOpenAi(request: StreamRequest): Promise<TokenUsage> {
     externalContext: request.externalContext,
     purpose: request.purpose,
     target: request.target,
+    targets: request.targets,
     recentDesigns: request.recentDesigns,
     referenceVisuals: request.referenceVisuals,
     designMemory: request.designMemory
@@ -1456,6 +1558,7 @@ async function streamAnthropic(request: StreamRequest): Promise<TokenUsage> {
     externalContext: request.externalContext,
     purpose: request.purpose,
     target: request.target,
+    targets: request.targets,
     recentDesigns: request.recentDesigns,
     referenceVisuals: request.referenceVisuals,
     designMemory: request.designMemory
@@ -1535,6 +1638,7 @@ async function streamGemini(request: StreamRequest): Promise<TokenUsage> {
     externalContext: request.externalContext,
     purpose: request.purpose,
     target: request.target,
+    targets: request.targets,
     recentDesigns: request.recentDesigns,
     referenceVisuals: request.referenceVisuals,
     designMemory: request.designMemory
@@ -1620,6 +1724,7 @@ async function streamDeepSeek(request: StreamRequest): Promise<TokenUsage> {
     externalContext: request.externalContext,
     purpose: request.purpose,
     target: request.target,
+    targets: request.targets,
     recentDesigns: request.recentDesigns,
     referenceVisuals: request.referenceVisuals,
     designMemory: request.designMemory

@@ -35,4 +35,11 @@ describe('preview selection runtime', () => {
       'closest("svg,g,path,rect,circle,ellipse,line,polyline,polygon,text,use")'
     )
   })
+
+  it('keeps selection mode active and publishes every selected target', () => {
+    const injected = injectPreviewSelectionRuntime('<html><body></body></html>')
+    expect(injected).toContain('var selectedElements=new Map()')
+    expect(injected).toContain('targets:Array.from(selectedElements.values()).map(snapshot)')
+    expect(injected).toContain("post('rects'")
+  })
 })

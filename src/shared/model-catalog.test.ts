@@ -15,6 +15,7 @@ describe('model catalog filtering', () => {
   it('keeps Gemini text models and removes generated-media and agent families', () => {
     const models = filterModelCatalog('google', [
       model('gemini-3.8-flash', 'google'),
+      model('gemini-4-argon', 'google'),
       model('gemini-3.8-flash-tts', 'google'),
       model('gemini-3.8-live', 'google'),
       model('gemini-3.1-flash-image', 'google'),
@@ -24,14 +25,20 @@ describe('model catalog filtering', () => {
       model('lyria-3.5', 'google'),
       model('gemma-4-31b-it', 'google')
     ])
-    expect(models.map((entry) => entry.id)).toEqual(['gemini-3.8-flash'])
+    expect(models.map((entry) => entry.id)).toEqual([
+      'gemini-4-argon',
+      'gemini-3.8-flash'
+    ])
     expect(models[0]?.latest).toBe(true)
   })
 
-  it('removes retired OpenAI models and non-chat API families', () => {
+  it('removes retired and excluded OpenAI models and non-chat API families', () => {
     const models = filterModelCatalog('openai', [
       model('gpt-5.5', 'openai'),
       model('gpt-5.5-2026-04-23', 'openai'),
+      model('gpt-5.6', 'openai'),
+      model('gpt-6.1-sol', 'openai'),
+      model('gpt-5.4', 'openai'),
       model('gpt-image-2', 'openai'),
       model('text-embedding-3-large', 'openai'),
       model('gpt-4o-mini-realtime-preview', 'openai'),
@@ -41,28 +48,40 @@ describe('model catalog filtering', () => {
       model('gpt-live-1', 'openai'),
       model('gpt-4.1', 'openai', '2020-01-01T00:00:00.000Z')
     ])
-    expect(models.map((entry) => entry.id)).toEqual(['gpt-5.5'])
+    expect(models.map((entry) => entry.id)).toEqual([
+      'gpt-6.1-sol',
+      'gpt-5.4'
+    ])
   })
 
-  it('never mixes another provider into a provider group', () => {
+  it('keeps current Claude 5.1 and 5.5 while excluding 4.8 and 5.0', () => {
     const models = filterModelCatalog('anthropic', [
-      model('claude-opus-5-5', 'anthropic'),
+      model('claude-opus-4-7', 'anthropic'),
+      model('claude-opus-4-8', 'anthropic'),
+      model('claude-sonnet-5-5', 'anthropic'),
+      model('claude-opus-5-1', 'anthropic'),
+      model('claude-5', 'anthropic'),
+      model('claude-sonnet-5-0', 'anthropic'),
       model('gpt-6.1-sol', 'openai'),
       model('claude-sonnet-5-5', 'openai')
     ])
 
-    expect(models.map((entry) => entry.id)).toEqual(['claude-opus-5-5'])
+    expect(models.map((entry) => entry.id)).toEqual([
+      'claude-sonnet-5-5',
+      'claude-opus-5-1',
+      'claude-opus-4-7'
+    ])
   })
 
   it('removes duplicate previews and latest aliases when stable names exist', () => {
     const models = filterModelCatalog('google', [
-      model('gemini-3.1-flash-lite-preview', 'google'),
-      model('gemini-3.1-flash-lite', 'google'),
+      model('gemini-3.8-flash-preview', 'google'),
+      model('gemini-3.8-flash', 'google'),
       model('gemini-flash-latest', 'google'),
-      model('gemini-3.1-pro-preview-customtools', 'google')
+      model('gemini-3.8-flash-preview-customtools', 'google')
     ])
 
-    expect(models.map((entry) => entry.id)).toEqual(['gemini-3.1-flash-lite'])
+    expect(models.map((entry) => entry.id)).toEqual(['gemini-3.8-flash'])
   })
 
   it('keeps only the current generation window for a provider', () => {

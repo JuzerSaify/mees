@@ -27,7 +27,7 @@ await writeFile(
       onboardingComplete: true,
       reviewAfterBuild: false,
       activeProvider: 'openai',
-      activeModel: 'gpt-5.2',
+      activeModel: 'gpt-6.1-sol',
       efforts: {},
       providers: {
         openai: {
@@ -35,37 +35,31 @@ await writeFile(
           keyHint: '...test',
           models: [
             {
-              id: 'gpt-5.2',
-              name: 'GPT-5.2',
+              id: 'gpt-6.1-sol',
+              name: 'GPT-6.1 Sol',
               provider: 'openai',
               supportsImages: true
             },
             {
-              id: 'gpt-5.2-2025-12-11',
-              name: 'GPT-5.2 snapshot',
+              id: 'gpt-5.4',
+              name: 'GPT-5.4',
               provider: 'openai',
               supportsImages: true
             },
             {
-              id: 'gpt-live-1',
-              name: 'GPT Live',
+              id: 'gpt-5.5',
+              name: 'GPT-5.5',
               provider: 'openai',
               supportsImages: true
             },
             {
-              id: 'claude-sonnet-5-5',
-              name: 'Claude Sonnet 5.5',
-              provider: 'openai',
-              supportsImages: true
-            },
-            {
-              id: 'gemini-3.8-flash',
-              name: 'Gemini 3.8 Flash',
+              id: 'gpt-5.6',
+              name: 'GPT-5.6',
               provider: 'openai',
               supportsImages: true
             }
           ],
-          selectedModel: 'gpt-5.2',
+          selectedModel: 'gpt-6.1-sol',
           verifiedAt: new Date().toISOString()
         },
         anthropic: {
@@ -73,19 +67,25 @@ await writeFile(
           keyHint: '...test',
           models: [
             {
-              id: 'claude-sonnet-5-5',
-              name: 'Claude Sonnet 5.5',
+              id: 'claude-opus-4-7',
+              name: 'Claude Opus 4.7',
               provider: 'anthropic',
               supportsImages: true
             },
             {
-              id: 'gpt-5.2',
-              name: 'GPT-5.2',
+              id: 'claude-opus-5-1',
+              name: 'Claude Opus 5.1',
+              provider: 'anthropic',
+              supportsImages: true
+            },
+            {
+              id: 'claude-sonnet-5-5',
+              name: 'Claude Sonnet 5.5',
               provider: 'anthropic',
               supportsImages: true
             }
           ],
-          selectedModel: 'claude-sonnet-5-5',
+          selectedModel: 'claude-opus-4-7',
           verifiedAt: new Date().toISOString()
         },
         google: {
@@ -93,37 +93,25 @@ await writeFile(
           keyHint: '...test',
           models: [
             {
+              id: 'gemini-4-argon',
+              name: 'Gemini 4 Argon',
+              provider: 'google',
+              supportsImages: true
+            },
+            {
               id: 'gemini-3.8-flash',
               name: 'Gemini 3.8 Flash',
               provider: 'google',
               supportsImages: true
             },
             {
-              id: 'gemini-3.1-flash-lite-preview',
-              name: 'Gemini 3.1 Flash Lite Preview',
-              provider: 'google',
-              supportsImages: true
-            },
-            {
-              id: 'gemini-3.1-flash-lite',
-              name: 'Gemini 3.1 Flash Lite',
-              provider: 'google',
-              supportsImages: true
-            },
-            {
-              id: 'gemma-4-31b-it',
-              name: 'Gemma 4 31B',
-              provider: 'google',
-              supportsImages: false
-            },
-            {
-              id: 'claude-sonnet-5-5',
-              name: 'Claude Sonnet 5.5',
+              id: 'gemini-3.5-pro',
+              name: 'Gemini 3.5 Pro',
               provider: 'google',
               supportsImages: true
             }
           ],
-          selectedModel: 'gemini-3.8-flash',
+          selectedModel: 'gemini-4-argon',
           verifiedAt: new Date().toISOString()
         },
         deepseek: {
@@ -135,15 +123,40 @@ await writeFile(
               name: 'DeepSeek V4 Pro',
               provider: 'deepseek',
               supportsImages: false
-            },
-            {
-              id: 'gpt-5.2',
-              name: 'GPT-5.2',
-              provider: 'deepseek',
-              supportsImages: true
             }
           ],
           selectedModel: 'deepseek-v4-pro',
+          verifiedAt: new Date().toISOString()
+        },
+        agy: {
+          harnessPath: 'C:\\Tools\\agy\\bin\\agy.exe',
+          harnessVersion: '1.5.0',
+          models: [
+            {
+              id: 'gemini-3.8-flash',
+              name: 'Gemini 3.8 Flash',
+              provider: 'agy',
+              supportsImages: true,
+              reasoningEfforts: ['low', 'medium', 'high'],
+              defaultEffort: 'medium'
+            },
+            {
+              id: 'claude-sonnet-4-6',
+              name: 'Claude Sonnet 4.6',
+              provider: 'agy',
+              supportsImages: true,
+              reasoningEfforts: []
+            },
+            {
+              id: 'gpt-oss-120b',
+              name: 'GPT-OSS 120B',
+              provider: 'agy',
+              supportsImages: false,
+              reasoningEfforts: ['medium'],
+              defaultEffort: 'medium'
+            }
+          ],
+          selectedModel: 'gemini-3.8-flash',
           verifiedAt: new Date().toISOString()
         }
       }
@@ -441,12 +454,155 @@ try {
   await page.screenshot({
     path: join(screenshotDirectory, 'seven-upgrades-desktop.png')
   })
+  await page
+    .locator('.canvas-toolbar')
+    .getByRole('button', { name: 'Select elements to edit' })
+    .click()
+  await page.waitForTimeout(220)
+  const previewFrame = page
+    .frames()
+    .find((frame) => frame !== page.mainFrame())
+  if (!previewFrame) throw new Error('The generated preview frame is missing.')
+  await previewFrame.evaluate(() => {
+    window.__meesTestClicks = 0
+    document.addEventListener('click', () => {
+      window.__meesTestClicks += 1
+    }, true)
+    const dispatch = (element) => {
+      element?.dispatchEvent(
+        new MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+          view: window
+        })
+      )
+    }
+    dispatch(document.querySelector('h1'))
+    dispatch(document.querySelector('.items div'))
+  })
+  await page.waitForTimeout(180)
+  const selectionState = {
+    outlines: await page.locator('.preview-selection-outline').count(),
+    pills: await page.locator('.preview-selection-prompt').count(),
+    editorVisible: await page.locator('.preview-inline-editor').isVisible()
+  }
+  if (
+    selectionState.outlines !== 2 ||
+    selectionState.pills !== 2 ||
+    !selectionState.editorVisible
+  ) {
+    const childFrame = page.frames().find((frame) => frame !== page.mainFrame())
+    const frameState = childFrame
+      ? await childFrame
+          .evaluate(() => ({
+            bridge: Boolean(window.__meesPreviewSelection),
+            active: document.body.classList.contains('mees-selection-active'),
+            clicks: window.__meesTestClicks ?? 0,
+            selectionUi: Boolean(
+              document.querySelector('[data-mees-selection-ui]')
+            ),
+            overlayText:
+              document.querySelector('[data-mees-selection-ui]')?.textContent,
+            h1: Boolean(document.querySelector('h1')),
+            item: Boolean(document.querySelector('.items div'))
+          }))
+          .catch((error) => ({ error: String(error) }))
+      : null
+    throw new Error(
+      `Multi-element selection failed: ${JSON.stringify({ selectionState, frameState })}`
+    )
+  }
+  const selectedChange = page.getByLabel(
+    'Describe the selected-element change'
+  )
+  await selectedChange.fill('Tighten both selected regions without changing the rest.')
+  if (
+    !(await page.getByRole('button', {
+      name: 'Apply selected-element change'
+    }).isEnabled())
+  ) {
+    throw new Error('The inline selected-element composer did not enable.')
+  }
+  await page.screenshot({
+    path: join(screenshotDirectory, 'multi-selection.png')
+  })
+  await page.getByRole('button', { name: 'Clear' }).click({ force: true })
+  await page
+    .locator('.canvas-toolbar')
+    .getByRole('button', { name: 'Stop selecting elements' })
+    .click()
+  const previewGuide = page.getByRole('button', {
+    name: 'Preview tool support'
+  })
+  await previewGuide.click()
+  await page.waitForSelector('.preview-help-popover')
+  await page.waitForTimeout(220)
+  const previewSupport = await page.evaluate(() => ({
+    rows: document.querySelectorAll('.preview-capability-row').length,
+    allModes: Array.from(
+      document.querySelectorAll('.preview-mode-chip.is-all')
+    ).length,
+    text:
+      document.querySelector('.preview-help-popover')?.textContent
+        ?.replace(/\s+/g, ' ')
+        .trim() ?? ''
+  }))
+  if (
+    previewSupport.rows < 5 ||
+    previewSupport.allModes < 2 ||
+    !previewSupport.text.includes('Timeline transport') ||
+    !previewSupport.text.includes('Motion')
+  ) {
+    throw new Error('The preview guide is missing mode support information.')
+  }
+  await page.screenshot({
+    path: join(screenshotDirectory, 'preview-guide.png')
+  })
+  await page.keyboard.press('Escape')
+  if (await page.getByRole('button', { name: /Preview page size/ }).count()) {
+    throw new Error('The removed preview size menu is still present.')
+  }
+  const resizeHandle = page.getByRole('separator', {
+    name: 'Resize agent and preview panels'
+  })
+  const beforeResize = await page.evaluate(() => ({
+    agent: Math.round(document.querySelector('.agent-panel')?.getBoundingClientRect().width ?? 0),
+    preview: Math.round(document.querySelector('.workspace-sheet')?.getBoundingClientRect().width ?? 0)
+  }))
+  await resizeHandle.focus()
+  await resizeHandle.press('ArrowLeft')
+  await resizeHandle.press('ArrowLeft')
+  await page.waitForTimeout(160)
+  const afterResize = await page.evaluate(() => ({
+    agent: Math.round(document.querySelector('.agent-panel')?.getBoundingClientRect().width ?? 0),
+    preview: Math.round(document.querySelector('.workspace-sheet')?.getBoundingClientRect().width ?? 0)
+  }))
+  if (
+    afterResize.agent >= beforeResize.agent ||
+    afterResize.preview <= beforeResize.preview
+  ) {
+    throw new Error('The left panel resizer did not update the preview width.')
+  }
   const modelTrigger = page.getByRole('button', {
     name: /Choose model and effort/
   })
   await modelTrigger.click()
   await page.waitForSelector('.model-menu')
   await page.waitForTimeout(180)
+  const effortOptions = page
+    .locator('.model-effort-options')
+    .getByRole('radio')
+  if ((await effortOptions.count()) < 3) {
+    throw new Error('The selected model does not expose direct effort options.')
+  }
+  const targetEffort = effortOptions.last()
+  if ((await targetEffort.getAttribute('aria-checked')) !== 'true') {
+    await targetEffort.click()
+    await page.waitForTimeout(350)
+  }
+  if ((await targetEffort.getAttribute('aria-checked')) !== 'true') {
+    throw new Error('The direct model effort picker did not apply the selection.')
+  }
   await page.screenshot({
     path: join(screenshotDirectory, 'mees-model-grouping.png')
   })
@@ -465,21 +621,30 @@ try {
     }))
   )
   const expectedModelGroups = [
-    { name: 'OpenAI', provider: 'openai', ids: ['gpt-5.2'] },
+    {
+      name: 'OpenAI',
+      provider: 'openai',
+      ids: ['gpt-6.1-sol', 'gpt-5.4']
+    },
     {
       name: 'Claude',
       provider: 'anthropic',
-      ids: ['claude-sonnet-5-5']
+      ids: ['claude-sonnet-5-5', 'claude-opus-5-1', 'claude-opus-4-7']
     },
     {
       name: 'Gemini',
       provider: 'google',
-      ids: ['gemini-3.8-flash', 'gemini-3.1-flash-lite']
+      ids: ['gemini-4-argon', 'gemini-3.8-flash']
     },
     {
       name: 'DeepSeek',
       provider: 'deepseek',
       ids: ['deepseek-v4-pro']
+    },
+    {
+      name: 'AGY CLI',
+      provider: 'agy',
+      ids: ['gemini-3.8-flash', 'claude-sonnet-4-6', 'gpt-oss-120b']
     }
   ]
   if (
@@ -612,14 +777,12 @@ try {
     throw new Error('The agent pixel loader is not animating.')
   }
 
-  const review = page.getByRole('button', { name: /Open design review/i })
-  await review.click()
-  await page.waitForTimeout(2600)
-  const reviewStatus =
-    (await page.locator('.review-summary h3').textContent())?.trim() ?? ''
-  await page.screenshot({
-    path: join(screenshotDirectory, 'seven-upgrades-review.png')
-  })
+  if (await page.getByRole('button', { name: /Open design review/i }).count()) {
+    throw new Error('The removed Review surface is still present.')
+  }
+  if (await page.getByRole('tab', { name: 'Review' }).count()) {
+    throw new Error('The Review inspector tab is still present.')
+  }
 
   const referenceButton = page.getByRole('button', {
     name: /Compare reference images/i
@@ -672,6 +835,36 @@ try {
     path: join(screenshotDirectory, 'seven-upgrades-files.png')
   })
   await page.getByRole('tab', { name: 'Memory' }).click()
+
+  const desktopSettingsButton = page
+    .getByRole('button', { name: /settings/i })
+    .first()
+  await desktopSettingsButton.click()
+  await page.waitForSelector('.settings-dialog-wide')
+  await page.waitForTimeout(180)
+  await page.screenshot({
+    path: join(screenshotDirectory, 'mees-settings-desktop.png')
+  })
+  const desktopSettings = await page.evaluate(() => ({
+    tabs: Array.from(
+      document.querySelectorAll('.settings-nav [role="tab"]')
+    ).map((tab) => ({
+      label: tab.textContent?.trim() ?? '',
+      icons: tab.querySelectorAll('svg').length
+    })),
+    active: document
+      .querySelector('.settings-nav [aria-selected="true"]')
+      ?.textContent?.trim() ?? ''
+  }))
+  if (
+    desktopSettings.tabs.length !== 4 ||
+    desktopSettings.tabs.some((tab) => tab.icons !== 0) ||
+    desktopSettings.active !== 'Model sources'
+  ) {
+    throw new Error('Settings tabs are not compact text-only sections.')
+  }
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(160)
 
   await page.setViewportSize({ width: 1100, height: 760 })
   await page.waitForTimeout(350)
@@ -763,8 +956,65 @@ try {
   await page.screenshot({
     path: join(screenshotDirectory, 'mees-agent-mobile.png')
   })
+  const closeMobileAgent = page.getByRole('button', {
+    name: 'Close agent',
+    exact: true
+  })
+  if (await closeMobileAgent.isVisible()) await closeMobileAgent.click()
+  await page.waitForTimeout(180)
+  const mobilePreviewGuide = page.getByRole('button', {
+    name: 'Preview tool support'
+  })
+  if (await mobilePreviewGuide.isVisible()) {
+    await mobilePreviewGuide.click()
+    await page.waitForSelector('.preview-help-popover')
+    await page.waitForTimeout(220)
+    await page.screenshot({
+      path: join(screenshotDirectory, 'preview-guide-mobile.png')
+    })
+    const mobileGuideGeometry = await page.evaluate(() => {
+      const menu = document.querySelector('.preview-help-popover')
+      if (!menu) return null
+      const box = menu.getBoundingClientRect()
+      return {
+        x: Math.round(box.x),
+        y: Math.round(box.y),
+        width: Math.round(box.width),
+        right: Math.round(box.right),
+        viewportWidth: window.innerWidth
+      }
+    })
+    if (
+      !mobileGuideGeometry ||
+      mobileGuideGeometry.x < 0 ||
+      mobileGuideGeometry.right > mobileGuideGeometry.viewportWidth
+    ) {
+      throw new Error(
+        `The mobile preview guide is clipped: ${JSON.stringify(mobileGuideGeometry)}`
+      )
+    }
+    await page.keyboard.press('Escape')
+  }
+  if (
+    await page
+      .getByRole('button', { name: /Preview page size/ })
+      .isVisible()
+      .catch(() => false)
+  ) {
+    throw new Error('The removed preview size menu is still visible on mobile.')
+  }
+  if (
+    await page
+      .getByRole('separator', { name: 'Resize agent and preview panels' })
+      .isVisible()
+      .catch(() => false)
+  ) {
+    throw new Error('The desktop panel resizer is visible on mobile.')
+  }
   const dismissToast = page.locator('.toast-close')
-  if (await dismissToast.isVisible()) await dismissToast.click()
+  if (await dismissToast.isVisible()) {
+    await dismissToast.click({ force: true })
+  }
 
   const settingsButton = page
     .getByRole('button', { name: /settings/i })
@@ -787,6 +1037,21 @@ try {
     if (!focusInside) {
       throw new Error('The mobile settings dialog did not take focus.')
     }
+    const settingsStructure = await page.evaluate(() => ({
+      tabs: document.querySelectorAll('.settings-nav [role="tab"]').length,
+      text:
+        document
+          .querySelector('.settings-dialog')
+          ?.textContent?.replace(/\s+/g, ' ')
+          .trim() ?? ''
+    }))
+    if (
+      settingsStructure.tabs !== 4 ||
+      !settingsStructure.text.includes('AGY CLI') ||
+      !settingsStructure.text.includes('Local harnesses')
+    ) {
+      throw new Error('Settings is missing side tabs or the AGY harness row.')
+    }
     await page.keyboard.press('Escape')
     await page.waitForTimeout(180)
     if (await page.locator('[role="dialog"]').isVisible()) {
@@ -794,15 +1059,15 @@ try {
     }
   }
 
-  const historyButton = page
-    .getByRole('button', { name: /saved designs/i })
+  const libraryButton = page
+    .getByRole('button', { name: /design library/i })
     .first()
-  if (await historyButton.count()) {
-    await historyButton.click()
+  if (await libraryButton.count()) {
+    await libraryButton.click()
     await page.waitForSelector('[role="dialog"]')
     await page.waitForTimeout(220)
     await page.screenshot({
-      path: join(screenshotDirectory, 'mees-history-mobile.png')
+      path: join(screenshotDirectory, 'mees-library-mobile.png')
     })
     await page.keyboard.press('Escape')
   }
@@ -822,7 +1087,6 @@ try {
         loaderAnimation,
         modelGroups,
         messages,
-        reviewStatus,
         memoryEntries: await page.locator('.memory-row').count(),
         fileCount,
         visibleCodeBlocks,
@@ -832,17 +1096,18 @@ try {
         storedAssetCount: storedAssets.length,
         screenshots: [
           'seven-upgrades-desktop.png',
+          'preview-guide.png',
           'mees-model-grouping.png',
           'seven-upgrades-agent-detail.png',
-          'seven-upgrades-review.png',
           'seven-upgrades-reference.png',
           'seven-upgrades-reference-overlay.png',
           'seven-upgrades-memory.png',
           'seven-upgrades-files.png',
           'seven-upgrades-narrow.png',
           'mees-agent-mobile.png',
+          'mees-settings-desktop.png',
           'mees-settings-mobile.png',
-          'mees-history-mobile.png'
+          'mees-library-mobile.png'
         ]
       },
       null,

@@ -1,25 +1,28 @@
-# Mees 1.2.0
+# Mees 1.4.0
 
-Mees now works with paid local CLI harnesses as well as API accounts. It automatically discovers installed harnesses, resolves their available models and reasoning levels, and keeps credentials inside the tool that owns them.
+Mees 1.4.0 expands the agent into a more dependable local design runtime. AGY CLI now works through the same tool loop as the API providers and other harnesses, model effort controls follow each model's real capabilities, and the studio is faster to scan and edit.
+
+Website: https://mees-design.vercel.app
 
 ## Improvements
 
-- Added automatic paid harness discovery for Codex CLI and OpenCode.
-- Added model, image capability and reasoning-effort discovery directly from each installed harness.
-- Codex CLI now selects the model configured by the user and reads its native app-server catalog.
-- OpenCode now reuses the local service, shows the exact models available to the installation and keeps authentication in OpenCode.
-- Added multi-turn Mees tool calls across local harnesses, including parallel tool requests and automatic correction retries.
-- Added progressive canvas handoff for harnesses that publish their final message after the model turn.
-- Moved harness discovery off the startup path so the workspace opens immediately and updates live.
-- Added title-bar update controls for downloading and restarting, with live progress.
-- Added cleaner user-facing agent states and compact harness model labels.
+- Added first-class AGY CLI discovery, native streaming, model selection, image references and Mees tool execution.
+- Added model-exact AGY effort options: Gemini 3.8 Flash uses Low, Medium and High; GPT-OSS uses its supported Medium default; AGY Claude models omit the unsupported effort control.
+- Added OpenCode effort discovery from local model metadata and native `model#variant` routing.
+- Simplified provider-aware model labels in the composer and model menu, including `3.8 Flash` for AGY.
+- Added draggable preview-panel resizing and sharper browser-zoom rendering.
+- Added multi-element preview selection with targeted inline edits.
+- Added compact text-only Settings sections for sources, agent behavior, updates and storage.
+- Reduced avoidable wait by defaulting AGY Gemini to Medium and reducing artificial preview latency.
 
 ## Fixes
 
-- Fixed raw harness tool markup appearing in the agent transcript.
-- Fixed local tool loops stopping when closing transport tags were omitted.
-- Fixed reasoning-only harness replies being accepted as completed designs.
-- Fixed silent startup delays while local harnesses were discovered.
-- Fixed update actions requiring repeated trips to Settings.
+- Fixed `Unsupported provider: agy` stopping real AGY runs.
+- Removed unsupported AGY Max and X-High choices.
+- Fixed OpenCode effort controls missing from supported models.
+- Fixed partial tool-call markup leaking into the transcript.
+- Fixed favicon lookup returning an unrelated site image.
+- Removed obsolete Review and Preview Size controls.
+- Improved horizontal layout and mobile behavior across the workspace.
 
-Download `Mees-Setup-1.2.0.exe` from this release. The installer is unsigned, so Windows SmartScreen may ask you to confirm the publisher before installation.
+Download `Mees-Setup-1.4.0.exe` from this release. The installer is unsigned, so Windows SmartScreen may ask you to confirm the publisher before installation.

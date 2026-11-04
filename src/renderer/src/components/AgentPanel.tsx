@@ -25,7 +25,6 @@ import type {
   AgentToolMetrics,
   ChatMessage,
   DesignMode,
-  DesignSelection,
   MessageStatus
 } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
@@ -47,20 +46,17 @@ interface AgentPanelProps {
   isGenerating: boolean
   isMobileOpen?: boolean
   onCloseMobile?: () => void
-  onClearTarget: () => void
   onDesignModeChange: (mode: DesignMode) => void
   onOpenSettings: () => void
   onRetry: () => void
   onSend: (
     text: string,
-    target: DesignSelection | null,
     referenceImages: AgentReferenceImage[]
   ) => Promise<void>
   onSnapshot: (snapshot: AppSnapshot) => void
   onStop: () => void
   project: AppProject | null
   run: AgentRunView | null
-  selectedTarget: DesignSelection | null
   snapshot: AppSnapshot
 }
 
@@ -502,7 +498,6 @@ export function AgentPanel({
   isGenerating,
   isMobileOpen,
   onCloseMobile,
-  onClearTarget,
   onDesignModeChange,
   onOpenSettings,
   onRetry,
@@ -511,7 +506,6 @@ export function AgentPanel({
   onStop,
   project,
   run,
-  selectedTarget,
   snapshot
 }: AgentPanelProps): React.JSX.Element {
   const [draft, setDraft] = useState('')
@@ -537,7 +531,7 @@ export function AgentPanel({
       : designMode === 'vector'
         ? 'Describe the vector artwork'
         : designMode === 'motion'
-          ? 'Describe the silent motion piece'
+          ? "Describe the film's subject, motion and final frame"
           : 'Describe the website you want to make'
   const emptyPrompt =
     designMode === 'logo'
@@ -572,11 +566,6 @@ export function AgentPanel({
     textarea.style.height = '0px'
     textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 72), 168)}px`
   }, [draft])
-
-  useEffect(() => {
-    if (!selectedTarget) return
-    textareaRef.current?.focus()
-  }, [selectedTarget])
 
   useEffect(() => {
     const message =
@@ -621,7 +610,7 @@ export function AgentPanel({
     setSubmitting(true)
     setSendError('')
     try {
-      await onSend(message, selectedTarget, referenceImages)
+      await onSend(message, referenceImages)
       setDraft('')
       setReferenceImages([])
     } catch (caught) {
@@ -681,8 +670,6 @@ export function AgentPanel({
 
   const placeholder = pendingQuestion
     ? 'Write a different answer'
-    : selectedTarget
-      ? 'Describe what should change'
     : hasDesign && project?.designMode === designMode
       ? 'Describe the next change'
       : hasAssistantReply
@@ -793,28 +780,6 @@ export function AgentPanel({
             <div className="composer-drop-target" aria-live="polite">
               <ImagePlus aria-hidden="true" size={18} />
               <span>Drop images to reference</span>
-            </div>
-          ) : null}
-          {selectedTarget ? (
-            <div className="composer-target" aria-label="Selected element">
-              <span className="composer-target-icon" aria-hidden="true">
-                <MousePointer2 size={13} />
-              </span>
-              <code title={selectedTarget.selector}>
-                {selectedTarget.html.match(/<[^>]+>/)?.[0] ??
-                  `<${selectedTarget.tag}>`}
-              </code>
-              <span className="composer-target-copy" title={selectedTarget.text}>
-                {selectedTarget.text || selectedTarget.selector}
-              </span>
-              <button
-                aria-label="Remove selected element"
-                className="composer-target-remove"
-                onClick={onClearTarget}
-                type="button"
-              >
-                <X aria-hidden="true" size={12} />
-              </button>
             </div>
           ) : null}
           {referenceImages.length ? (

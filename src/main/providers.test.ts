@@ -41,14 +41,19 @@ describe('provider model discovery', () => {
         data: [
           { id: 'gpt-5.4', created: now - 200 },
           { id: 'text-embedding-3-large', created: now - 100 },
-          { id: 'gpt-5.5', created: now }
+          { id: 'gpt-6.1-sol', created: now },
+          { id: 'gpt-5.6', created: now - 50 },
+          { id: 'gpt-5.5', created: now - 25 }
         ]
       })
     )
     vi.stubGlobal('fetch', fetchMock)
 
     const models = await listModels('openai', 'sk-test')
-    expect(models.map((model) => model.id)).toEqual(['gpt-5.5', 'gpt-5.4'])
+    expect(models.map((model) => model.id)).toEqual([
+      'gpt-6.1-sol',
+      'gpt-5.4'
+    ])
     expect(models[0]?.latest).toBe(true)
     expect(fetchMock).toHaveBeenCalledWith(
       'https://api.openai.com/v1/models',
@@ -461,11 +466,31 @@ describe('agent tool turns', () => {
       name: 'search_web',
       description: 'Search the live web.',
       inputSchema: {
+        $schema: 'https://json-schema.org/draft/2020-12/schema',
         type: 'object',
+        additionalProperties: false,
         properties: {
           queries: {
             type: 'array',
             items: { type: 'string' }
+          },
+          filters: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              quality: { type: 'string' }
+            }
+          },
+          constraints: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                field: { type: 'string' }
+              },
+              required: ['field']
+            }
           }
         },
         required: ['queries']
@@ -717,6 +742,8 @@ describe('agent tool turns', () => {
     const body = turnBody(fetchMock)
     expect(JSON.stringify(body.contents)).toContain('inlineData')
     expect(JSON.stringify(body.tools)).toContain('functionDeclarations')
+    expect(JSON.stringify(body.tools)).not.toContain('additionalProperties')
+    expect(JSON.stringify(body.tools)).not.toContain('$schema')
   })
 
   it('parses DeepSeek tool-call deltas and multimodal message content', async () => {

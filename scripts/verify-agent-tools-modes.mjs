@@ -238,13 +238,15 @@ try {
   await page.waitForTimeout(900)
 
   const results = []
+  const captures = {}
   for (const [mode, html] of Object.entries(artifacts)) {
     const capture = await page.evaluate(
       async ({ html: source, designMode }) =>
         window.mees.captureArtifact(source, designMode),
       { html, designMode: mode }
     )
-    const expectedScreenshots = mode === 'website' ? 3 : 1
+    const expectedScreenshots =
+      mode === 'website' ? 3 : mode === 'motion' ? 3 : 1
     const errors = [
       ...capture.consoleErrors,
       ...capture.pageErrors,
@@ -267,6 +269,7 @@ try {
       runtimeIssues: capture.issues.map((issue) => issue.rule),
       durationMs: capture.durationMs
     })
+    captures[mode] = capture
   }
 
   for (const check of negativeArtifacts) {
@@ -290,15 +293,68 @@ try {
       [...detected]
   }
 
+  await page.evaluate(async (runtimeCaptures) => {
+    const state = await window.mees.getState()
+    for (const project of state.projects) {
+      const runtime = runtimeCaptures[project.designMode]
+      if (!runtime) continue
+      await window.mees.saveProject({
+        ...project,
+        audit: {
+          createdAt: new Date().toISOString(),
+          revision: Math.max(0, project.revision - 1),
+          mode: project.designMode,
+          issueCount: 0,
+          issues: [],
+          viewports: [],
+          palette: [],
+          fonts: [],
+          runtime,
+          screenshots: runtime.screenshots
+        }
+      })
+    }
+  }, captures)
+  await page.reload()
+  await page.waitForLoadState('domcontentloaded')
+  await page.waitForTimeout(900)
+
   for (const mode of Object.keys(artifacts)) {
     const modeProject = projects.find((project) => project.designMode === mode)
     if (!modeProject) continue
     await page
       .locator('.app-rail')
-      .getByRole('button', { name: 'Saved designs' })
+      .getByRole('button', { name: 'Library' })
       .click()
+    await page.waitForSelector('.library-grid, .history-empty')
+    await page.waitForTimeout(260)
+    if (mode === 'website') {
+      const modeTabs = page.locator('.library-mode-tabs button')
+      if ((await modeTabs.count()) !== 5) {
+        issues.push('library: expected five mode categories')
+      }
+      const previewImages = await page.locator('.library-preview img').count()
+      const previewFrames = await page.locator('.library-preview iframe').count()
+      if (previewImages !== 4 || previewFrames !== 0) {
+        issues.push(
+          `library: expected four static previews and no live frames, found ${previewImages}/${previewFrames}`
+        )
+      }
+      await page.screenshot({
+        path: join(screenshotDirectory, 'library-all.png')
+      })
+      await page.getByRole('button', { name: /^Motion/ }).click()
+      const motionCards = await page.locator('.library-card.is-motion').count()
+      if (motionCards !== 1) {
+        issues.push(`library: expected one Motion project, found ${motionCards}`)
+      }
+      await page.screenshot({
+        path: join(screenshotDirectory, 'library-motion.png')
+      })
+      await page.getByRole('button', { name: /^All/ }).click()
+    }
     await page
-      .locator('.project-row-main')
+      .locator('.library-card-main')
       .filter({ hasText: modeProject.title })
       .click()
     await page.waitForTimeout(250)
@@ -342,25 +398,18 @@ try {
     if (mode === 'motion' ? toolbar.selectDisabled !== true : toolbar.selectDisabled !== false) {
       issues.push(`${mode}: element-selection support is incorrect`)
     }
-    await page
-      .locator('.canvas-toolbar')
-      .getByRole('button', { name: /Open design review/i })
-      .click()
-    await page.waitForSelector('.inspector-loading', { timeout: 5_000 })
-    await page.waitForSelector('.review-summary h3', { timeout: 15_000 })
-    const title =
-      (await page.locator('.review-summary h3').textContent())?.trim() ?? ''
-    const issueCount = await page.locator('.review-issue').count()
-    if (!title.toLowerCase().includes('no measured issues') && issueCount > 0) {
-      issues.push(`${mode} local review: ${issueCount} finding(s)`)
+    if (
+      await page
+        .locator('.canvas-toolbar')
+        .getByRole('button', { name: /Open design review/i })
+        .count()
+    ) {
+      issues.push(`${mode}: the removed Review control is still visible`)
     }
     await page.screenshot({
       path: join(screenshotDirectory, `${mode}.png`)
     })
-    results[Object.keys(artifacts).indexOf(mode)].localReview = {
-      title,
-      issueCount,
-      viewports: await page.locator('.review-viewport').count(),
+    results[Object.keys(artifacts).indexOf(mode)].preview = {
       toolbar
     }
   }

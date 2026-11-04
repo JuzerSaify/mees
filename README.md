@@ -13,6 +13,7 @@ Local paid harnesses:
 
 - Codex CLI
 - OpenCode
+- AGY CLI
 
 ## Run
 
@@ -23,7 +24,7 @@ npm install
 npm run dev
 ```
 
-On first launch, connect at least one API provider with its key or use a supported paid CLI already installed on the same computer. Mees checks the normal executable search path and common installation folders, then discovers the harness's model catalog. Harness authentication remains owned by Codex CLI or OpenCode; Mees never copies that token.
+On first launch, connect at least one API provider with its key or use a supported paid CLI already installed on the same computer. Mees checks the normal executable search path and common installation folders, then discovers the harness's model catalog. Harness authentication remains owned by Codex CLI, OpenCode or AGY CLI; Mees never copies that token.
 
 Source checkouts are for development. Run `npm run build` to compile without creating an installer. Windows installers are built only by the tag-triggered GitHub release workflow in `.github/workflows/release.yml`.
 

@@ -128,14 +128,16 @@ function anthropicSupport(modelId: string): EffortSupport {
   const noExtended = ['low', 'medium', 'high', 'max'] as EffortLevel[]
 
   if (
-    /claude-(?:fable|mythos)-(?:5[.-]1|5)(?:-|$)/.test(id) ||
-    /claude-(?:opus|sonnet)-5(?:[.-]5)?(?:-|$)/.test(id) ||
-    /claude-haiku-5[.-]5(?:-|$)/.test(id)
+    /claude-(?:fable|mythos)-5(?:[.-](?:1|5))?(?:-|$)/.test(id) ||
+    /claude-(?:opus|sonnet)-5(?:[.-](?:1|5))?(?:-|$)/.test(id) ||
+    /claude-haiku-5(?:[.-](?:1|5))?(?:-|$)/.test(id)
   ) {
     return support(
       'anthropic',
       all,
-      /claude-(?:opus|haiku)-5[.-]5(?:-|$)/.test(id) ? 'medium' : 'high'
+      /claude-(?:opus|haiku)-5(?:[.-](?:1|5))?(?:-|$)/.test(id)
+        ? 'medium'
+        : 'high'
     )
   }
   if (/claude-opus-4[.-](?:7|8)(?:-|$)/.test(id)) {
@@ -212,7 +214,10 @@ export function getEffortSupport(
       return deepSeekSupport(modelId)
     case 'codex':
     case 'opencode':
-      if (!modelInfo?.reasoningEfforts?.length) return NO_EFFORT
+    case 'agy':
+      if (!modelInfo?.reasoningEfforts || modelInfo.reasoningEfforts.length < 2) {
+        return NO_EFFORT
+      }
       return {
         transport: 'harness',
         options: options(modelInfo.reasoningEfforts, true),

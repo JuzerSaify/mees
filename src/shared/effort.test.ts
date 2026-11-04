@@ -53,6 +53,15 @@ describe('model effort support', () => {
         (option) => option.value
       )
     ).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
+    expect(getEffortSupport('anthropic', 'claude-opus-5-1')).toMatchObject({
+      transport: 'anthropic',
+      defaultEffort: 'medium'
+    })
+    expect(
+      getEffortSupport('anthropic', 'claude-opus-5-1').options.map(
+        (option) => option.value
+      )
+    ).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
   })
 
   it('uses Gemini thinking levels and the 2.5 token-budget path', () => {
@@ -115,5 +124,27 @@ describe('model effort support', () => {
     ).toEqual(['low', 'medium', 'high', 'xhigh', 'max', 'ultra'])
     expect(normalizeEffort('codex', model.id, 'ultra', model)).toBe('ultra')
     expect(normalizeEffort('codex', model.id, 'none', model)).toBe('medium')
+  })
+
+  it('normalizes AGY and OpenCode variants from their reported capabilities', () => {
+    const agy: ModelInfo = {
+      id: 'gemini-3.8-flash',
+      name: 'Gemini 3.8 Flash',
+      provider: 'agy',
+      reasoningEfforts: ['low', 'medium', 'high'],
+      defaultEffort: 'high'
+    }
+    expect(normalizeEffort('agy', agy.id, 'max', agy)).toBe('high')
+    expect(normalizeEffort('agy', agy.id, 'low', agy)).toBe('low')
+
+    const openCode: ModelInfo = {
+      id: 'opencode/beam-free',
+      name: 'Beam Free',
+      provider: 'opencode',
+      reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      defaultEffort: 'medium'
+    }
+    expect(normalizeEffort('opencode', openCode.id, 'max', openCode)).toBe('max')
+    expect(getEffortSupport('opencode', openCode.id, openCode).options).toHaveLength(5)
   })
 })

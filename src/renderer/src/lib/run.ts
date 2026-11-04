@@ -33,6 +33,7 @@ export interface AgentRunView {
   mode: 'design' | 'polish' | 'targeted-edit'
   designMode: DesignMode
   target?: DesignSelection
+  targets?: DesignSelection[]
   baselineIssueCount?: number
   assets: FetchedVisualAsset[]
   activities: AgentActivity[]

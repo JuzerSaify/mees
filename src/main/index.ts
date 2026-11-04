@@ -69,7 +69,7 @@ import {
 } from './asset-store'
 import { optimizeAsset } from './agent-media'
 import { captureArtifactRuntime } from './artifact-runtime'
-import { attachSourceIcons } from './source-icons'
+import { attachSourceIcons, resolveSiteIcon } from './source-icons'
 import { migrateLegacyUserData } from './user-data-migration'
 import {
   checkForUpdates,
@@ -1157,6 +1157,8 @@ function registerIpc(): void {
             ? { bytes: asset.bytes, contentType: asset.contentType }
             : null
         },
+        resolveSiteIcon: (site: string) =>
+          resolveSiteIcon(site, store.assetStore),
         writeAsset: async (
           bytes: Uint8Array,
           contentType: string,
@@ -1387,6 +1389,7 @@ function registerIpc(): void {
               messages: conversation,
               tools: step < maxToolSteps ? availableTools : [],
               signal: controller.signal,
+              targets: request.targets,
               onProviderEvent: (providerEvent) => {
                 const detail =
                   providerEvent.type === 'retry'

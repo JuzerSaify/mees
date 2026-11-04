@@ -60,6 +60,11 @@ const HARNESS_DEFINITIONS: Record<HarnessProviderId, HarnessDefinition> = {
     provider: 'opencode',
     commands: ['opencode', 'opencode2'],
     versionArgs: ['--version']
+  },
+  agy: {
+    provider: 'agy',
+    commands: ['agy'],
+    versionArgs: ['--version']
   }
 }
 
@@ -135,6 +140,11 @@ async function fallbackExecutables(command: string): Promise<string[]> {
           'OpenCode.exe'
         ),
         join(process.env.LOCALAPPDATA, 'Programs', 'opencode', 'opencode.exe')
+      )
+    }
+    if (command === 'agy') {
+      candidates.push(
+        join(process.env.LOCALAPPDATA, 'agy', 'bin', 'agy.exe')
       )
     }
   }
@@ -405,7 +415,7 @@ async function codexModels(executable: string): Promise<ModelInfo[]> {
       clientInfo: {
         name: 'mees',
         title: 'Mees',
-        version: '1.2.0'
+        version: '1.4.0'
       },
       capabilities: {
         experimentalApi: true
@@ -471,7 +481,34 @@ async function codexModels(executable: string): Promise<ModelInfo[]> {
   }
 }
 
-export function parseOpenCodeModelLines(output: string): ModelInfo[] {
+function preferredOpenCodeEffort(
+  efforts: EffortLevel[]
+): EffortLevel | undefined {
+  if (efforts.includes('medium')) return 'medium'
+  if (efforts.includes('high')) return 'high'
+  if (efforts.includes('low')) return 'low'
+  return efforts[0]
+}
+
+function openCodeMetadataForModel(
+  catalog: Record<string, unknown> | undefined,
+  id: string
+): Record<string, unknown> {
+  if (!catalog) return {}
+  const cleanId = id.replace(/#.*$/, '')
+  const separator = cleanId.indexOf('/')
+  if (separator <= 0) return {}
+  const providerId = cleanId.slice(0, separator)
+  const modelId = cleanId.slice(separator + 1)
+  const provider = asRecord(catalog[providerId])
+  const models = asRecord(provider.models)
+  return asRecord(models[modelId])
+}
+
+export function parseOpenCodeModelLines(
+  output: string,
+  catalog?: Record<string, unknown>
+): ModelInfo[] {
   const seen = new Set<string>()
   return output
     .split(/\r?\n/)
@@ -482,13 +519,112 @@ export function parseOpenCodeModelLines(output: string): ModelInfo[] {
         !seen.has(line) &&
         Boolean(seen.add(line))
     )
-    .map((id) => ({
-      id,
-      name: id,
-      provider: 'opencode',
-      supportsImages:
-        /(?:vision|image|vl|multimodal|omni)/i.test(id) ? true : undefined
-    }))
+    .map((id) => {
+      const metadata = openCodeMetadataForModel(catalog, id)
+      const effortValues = new Set<string>()
+      for (const option of asArray(metadata.reasoning_options)) {
+        const record = asRecord(option)
+        if (record.type !== 'effort') continue
+        for (const value of asArray(record.values)) {
+          if (typeof value === 'string' && EFFORT_SET.has(value)) {
+            effortValues.add(value)
+          }
+        }
+      }
+      const reasoningEfforts = EFFORT_LEVELS.filter((effort) =>
+        effortValues.has(effort)
+      )
+      const modalities = asRecord(metadata.modalities)
+      const supportsImages =
+        metadata.attachment === true ||
+        asArray(modalities.input).includes('image') ||
+        /(?:vision|image|vl|multimodal|omni)/i.test(id)
+          ? true
+          : undefined
+      const defaultEffort = preferredOpenCodeEffort(reasoningEfforts)
+      return {
+        id,
+        name:
+          typeof metadata.name === 'string' && metadata.name.trim()
+            ? metadata.name.trim()
+            : id,
+        provider: 'opencode',
+        supportsImages,
+        ...(reasoningEfforts.length
+          ? {
+              reasoningEfforts,
+              ...(defaultEffort ? { defaultEffort } : {})
+            }
+          : {})
+      } satisfies ModelInfo
+    })
+}
+
+export function parseAgyModelLines(output: string): ModelInfo[] {
+  const models = new Map<string, ModelInfo>()
+  const modelEfforts = new Map<string, Set<EffortLevel>>()
+  const effortOrder: EffortLevel[] = ['low', 'medium', 'high']
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\x1b\[[0-9;]*m/g, '').trim())
+    .flatMap((line) => {
+      const match = /^([A-Za-z0-9][A-Za-z0-9._:/#-]*)\t+(.+)$/.exec(line)
+      if (!match?.[1] || !match[2]) return []
+      const suffix = /-(low|medium|high|xhigh)$/i.exec(match[1])?.[1]
+      const defaultEffort = effortOrder.find(
+        (effort) => effort === suffix?.toLowerCase()
+      )
+      const id = suffix
+        ? match[1].slice(0, -suffix.length - 1)
+        : match[1]
+      const name = match[2]
+        .replace(
+          /\s*\((?:low|medium|high|xhigh|thinking)\)\s*$/i,
+          ''
+        )
+        .trim()
+      const existing = models.get(id)
+      if (existing) {
+        if (defaultEffort) {
+          const effortsForModel = modelEfforts.get(id) ?? new Set<EffortLevel>()
+          effortsForModel.add(defaultEffort)
+          modelEfforts.set(id, effortsForModel)
+        }
+        return []
+      }
+      const next = {
+        id,
+        name,
+        provider: 'agy',
+        supportsImages: !/gpt-oss/i.test(id),
+        ...(defaultEffort ? { defaultEffort } : {})
+      } satisfies ModelInfo
+      if (defaultEffort) {
+        modelEfforts.set(id, new Set([defaultEffort]))
+      }
+      models.set(id, next)
+      return [
+        next
+      ]
+    })
+    .map((model) => {
+      const efforts = effortOrder.filter(
+        (effort) => modelEfforts.get(model.id)?.has(effort) === true
+      )
+      if (efforts.length > 0) {
+        return {
+          ...model,
+          reasoningEfforts: efforts,
+          defaultEffort: efforts.includes('medium')
+            ? 'medium'
+            : model.defaultEffort && efforts.includes(model.defaultEffort)
+              ? model.defaultEffort
+              : efforts[0]
+        }
+      }
+      const { defaultEffort: _defaultEffort, ...withoutEffort } = model
+      return withoutEffort
+    })
 }
 
 async function openCodeModels(executable: string): Promise<ModelInfo[]> {
@@ -501,9 +637,37 @@ async function openCodeModels(executable: string): Promise<ModelInfo[]> {
         'OpenCode could not list its models.'
     )
   }
-  const models = parseOpenCodeModelLines(result.stdout)
+  let catalog: Record<string, unknown> | undefined
+  const cacheDirectory =
+    process.env.XDG_CACHE_HOME?.trim() || join(homedir(), '.cache')
+  try {
+    const parsed = JSON.parse(
+      await readFile(join(cacheDirectory, 'opencode', 'models.json'), 'utf8')
+    ) as unknown
+    catalog = asRecord(parsed)
+  } catch {
+    // Discovery still works when OpenCode has not written its model cache yet.
+  }
+  const models = parseOpenCodeModelLines(result.stdout, catalog)
   if (models.length === 0) {
     throw new Error('OpenCode did not report an available model.')
+  }
+  return models
+}
+
+async function agyModels(executable: string): Promise<ModelInfo[]> {
+  const result = await runCommand(executable, ['models'], {
+    timeoutMs: 30_000
+  })
+  if (result.code !== 0) {
+    throw new Error(
+      result.stderr.trim().slice(0, 400) ||
+        'AGY could not list its models.'
+    )
+  }
+  const models = parseAgyModelLines(result.stdout)
+  if (models.length === 0) {
+    throw new Error('AGY did not report an available model.')
   }
   return models
 }
@@ -525,7 +689,9 @@ async function detectHarness(
       readHarnessVersion(executable, definition),
       definition.provider === 'codex'
         ? codexModels(executable)
-        : openCodeModels(executable),
+        : definition.provider === 'opencode'
+          ? openCodeModels(executable)
+          : agyModels(executable),
       definition.provider === 'codex'
         ? codexConfiguredModel()
         : Promise.resolve(undefined)
@@ -621,6 +787,7 @@ function harnessPrompt(request: AgentTurnRequest): string {
     externalContext: request.externalContext,
     purpose: request.purpose,
     target: request.target,
+    targets: request.targets,
     recentDesigns: request.recentDesigns,
     referenceVisuals: request.referenceVisuals,
     designMemory: request.designMemory
@@ -636,6 +803,7 @@ function harnessPrompt(request: AgentTurnRequest): string {
     'You are running through the user\'s installed paid CLI harness. Work only from the conversation and files supplied here.',
     'Do not inspect the repository, run terminal commands, edit files, invoke the CLI built-in tools, or request approvals.',
     'Mees owns the tool loop. The only tools available are listed below.',
+    'Treat this list as authoritative. A listed Mees tool is available through the bridge even if it is not a native CLI tool; never claim that a listed tool is unavailable.',
     'When you need one or more Mees tools, respond with only one or more blocks in this exact form:',
     '<mees_tool_call>{"name":"tool_name","arguments":{}}</mees_tool_call>',
     'You may emit several tool blocks together. After Mees returns the tool results, continue in the same task.',
@@ -750,6 +918,34 @@ export function parseToolCallBlocks(
     toolCalls: calls,
     usage: {}
   }
+}
+
+export function visibleHarnessText(text: string): string {
+  let visible = text.replace(
+    /<mees_tool_call>[\s\S]*?<\/(?:mees_tool_call|arg_value|tool_call)>/gi,
+    ''
+  )
+  const pending = visible.search(/<mees_tool_call>/i)
+  if (pending >= 0) visible = visible.slice(0, pending)
+  const openingTag = '<mees_tool_call>'
+  for (
+    let length = Math.min(openingTag.length - 1, visible.length);
+    length > 0;
+    length -= 1
+  ) {
+    if (
+      visible
+        .slice(-length)
+        .toLowerCase() === openingTag.slice(0, length).toLowerCase()
+    ) {
+      visible = visible.slice(0, -length)
+      break
+    }
+  }
+  return visible.replace(
+    /<\/?(?:mees_tool_call|arg_value|tool_call)>/gi,
+    ''
+  )
 }
 
 async function materializeReferenceImages(
@@ -893,6 +1089,7 @@ async function runOpenCodeHarness(
   executable: string,
   directory: string,
   images: string[],
+  modelInfo: ModelInfo | undefined,
   prompt: string
 ): Promise<AgentTurnResult> {
   if (!SAFE_MODEL_ID.test(request.model)) {
@@ -901,6 +1098,30 @@ async function runOpenCodeHarness(
   let text = ''
   let failure = ''
   let usage: AgentTurnResult['usage'] = {}
+  let streamedLive = false
+  let emittedVisibleText = ''
+  const effort = normalizeEffort(
+    'opencode',
+    request.model,
+    request.effort,
+    modelInfo
+  )
+  const model = request.model.includes('#')
+    ? request.model
+    : effort
+      ? `${request.model}#${effort}`
+      : request.model
+  const forwardVisibleText = (): void => {
+    const visible = visibleHarnessText(text)
+    if (!visible.startsWith(emittedVisibleText)) return
+    if (visible.length <= emittedVisibleText.length) return
+    const addition = visible.slice(emittedVisibleText.length)
+    for (let start = 0; start < addition.length; start += 320) {
+      request.onDelta(addition.slice(start, start + 320))
+    }
+    emittedVisibleText = visible
+    streamedLive = true
+  }
   request.onProviderEvent?.({ type: 'attempt', attempt: 1 })
 
   const result = await runCommand(
@@ -910,7 +1131,7 @@ async function runOpenCodeHarness(
       '--format',
       'json',
       '--model',
-      request.model,
+      model,
       ...images.flatMap((image) => ['--file', image])
     ],
     {
@@ -935,6 +1156,7 @@ async function runOpenCodeHarness(
           const part = asRecord(event.part)
           if (typeof part.text === 'string') {
             text += part.text
+            forwardVisibleText()
           }
           return
         }
@@ -979,7 +1201,142 @@ async function runOpenCodeHarness(
       'OpenCode returned a tool request that Mees could not validate.'
     )
   }
-  return { ...parsed, usage }
+  return { ...parsed, usage, streamedLive }
+}
+
+async function runAgyHarness(
+  request: AgentTurnRequest,
+  executable: string,
+  directory: string,
+  images: string[],
+  modelInfo: ModelInfo | undefined,
+  prompt: string
+): Promise<AgentTurnResult> {
+  if (!SAFE_MODEL_ID.test(request.model)) {
+    throw new Error('The selected AGY model identifier is invalid.')
+  }
+  const effort = normalizeEffort(
+    'agy',
+    request.model,
+    request.effort,
+    modelInfo
+  )
+  const promptWithImages = images.length
+    ? [
+        prompt,
+        '',
+        'Reference image files available in the working directory:',
+        ...images.map((image, index) => `${index + 1}. ${image}`),
+        'Inspect these files when visual composition matters, then continue with the required Mees tool call or artifact.'
+      ].join('\n')
+    : prompt
+  let text = ''
+  let failure = ''
+  let usage: AgentTurnResult['usage'] = {}
+  let streamedLive = false
+  let emittedVisibleText = ''
+
+  const forwardVisibleText = (): void => {
+    const visible = visibleHarnessText(text)
+    if (!visible.startsWith(emittedVisibleText)) return
+    if (visible.length <= emittedVisibleText.length) return
+    request.onDelta(visible.slice(emittedVisibleText.length))
+    emittedVisibleText = visible
+    streamedLive = true
+  }
+
+  request.onProviderEvent?.({ type: 'attempt', attempt: 1 })
+  const result = await runCommand(
+    executable,
+    [
+      '--output-format',
+      'stream-json',
+      '--disable-slash-commands',
+      '--model',
+      request.model,
+      ...(effort ? ['--effort', effort] : []),
+      ...(images.length ? ['--add-dir', directory] : []),
+      '--print',
+      promptWithImages
+    ],
+    {
+      cwd: directory,
+      signal: request.signal,
+      timeoutMs: 10 * 60_000,
+      onStdoutLine: (line) => {
+        const trimmed = line.trim()
+        if (!trimmed.startsWith('{')) return
+        let event: Record<string, unknown>
+        try {
+          event = asRecord(JSON.parse(trimmed))
+        } catch {
+          return
+        }
+        if (event.event === 'init') {
+          request.onProviderEvent?.({ type: 'connected', attempt: 1 })
+          return
+        }
+        if (event.event === 'step_update') {
+          const update = asRecord(event.step_update)
+          if (update.state === 'ERROR') {
+            failure =
+              (typeof update.message === 'string' && update.message) ||
+              'AGY stopped before returning a response.'
+            return
+          }
+          if (
+            update.step_type === 'agent_response' &&
+            update.state === 'ACTIVE' &&
+            typeof update.text_delta === 'string'
+          ) {
+            text += update.text_delta
+            forwardVisibleText()
+          }
+          return
+        }
+        if (event.event === 'result') {
+          const payload = asRecord(event.result)
+          const rawUsage = asRecord(payload.usage)
+          if (typeof payload.response === 'string') {
+            text = payload.response
+            forwardVisibleText()
+          }
+          usage = {
+            inputTokens:
+              typeof rawUsage.input_tokens === 'number'
+                ? rawUsage.input_tokens
+                : undefined,
+            outputTokens:
+              typeof rawUsage.output_tokens === 'number'
+                ? rawUsage.output_tokens
+                : undefined
+          }
+          if (payload.status !== 'SUCCESS') {
+            failure =
+              (typeof payload.error === 'string' && payload.error) ||
+              'AGY stopped before returning a response.'
+          }
+        }
+      }
+    }
+  )
+
+  if (result.code !== 0 && !text) {
+    throw new Error(
+      failure ||
+        result.stderr.trim().slice(0, 600) ||
+        'AGY stopped before returning a response.'
+    )
+  }
+  if (failure && !text) throw new Error(failure)
+  const parsed = parseToolCallBlocks(
+    text,
+    request.tools.map((tool) => tool.name)
+  )
+  if (/<mees_tool_call>/i.test(text) && parsed.toolCalls.length === 0) {
+    throw new Error('AGY returned a tool request that Mees could not validate.')
+  }
+  return { ...parsed, usage, streamedLive }
 }
 
 function hasFinalArtifact(text: string): boolean {
@@ -1014,7 +1371,11 @@ async function emitHarnessText(
 export async function runLocalHarnessAgentTurn(
   request: AgentTurnRequest
 ): Promise<AgentTurnResult> {
-  if (request.provider !== 'codex' && request.provider !== 'opencode') {
+  if (
+    request.provider !== 'codex' &&
+    request.provider !== 'opencode' &&
+    request.provider !== 'agy'
+  ) {
     throw new Error('The local harness provider is invalid.')
   }
 
@@ -1045,13 +1406,23 @@ export async function runLocalHarnessAgentTurn(
             modelInfo,
             prompt
           )
-        : runOpenCodeHarness(
-            request,
-            detection.commandPath!,
-            directory,
-            images,
-            prompt
-          )
+        : request.provider === 'opencode'
+          ? runOpenCodeHarness(
+              request,
+              detection.commandPath!,
+              directory,
+              images,
+              modelInfo,
+              prompt
+            )
+          : runAgyHarness(
+              request,
+              detection.commandPath!,
+              directory,
+              images,
+              modelInfo,
+              prompt
+            )
 
     let result = await runAttempt(harnessPrompt(request))
     if (
@@ -1084,7 +1455,11 @@ export async function runLocalHarnessAgentTurn(
         'The local harness returned commentary without the required design artifact.'
       )
     }
-    if (result.text && result.toolCalls.length === 0) {
+    if (
+      result.text &&
+      result.toolCalls.length === 0 &&
+      !result.streamedLive
+    ) {
       await emitHarnessText(result.text, request)
     }
     return result

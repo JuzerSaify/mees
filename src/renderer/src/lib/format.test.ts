@@ -19,5 +19,6 @@ describe('compact model labels', () => {
     expect(
       compactModelName('opencode', 'anthropic/claude-sonnet-5.5')
     ).toBe('Claude Sonnet 5.5')
+    expect(compactModelName('agy', 'Gemini 3.8 Flash')).toBe('3.8 Flash')
   })
 })

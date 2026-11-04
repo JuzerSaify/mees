@@ -1,6 +1,8 @@
 import {
   AlertCircle,
+  ArrowUp,
   ArrowUpRight,
+  CircleHelp,
   Clapperboard,
   Columns2,
   Download,
@@ -15,16 +17,22 @@ import {
   Plus,
   PenTool,
   Pause,
+  PencilLine,
   Play,
   RotateCcw,
-  ScanSearch,
   Smartphone,
   Shapes,
   Tablet,
   VolumeX,
   X
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent
+} from 'react'
 import type {
   AppProject,
   DesignMode,
@@ -49,16 +57,18 @@ interface PreviewCanvasProps {
   onExport: () => void
   onOpenInspector: (tab: InspectorTab) => void
   onOpenPreview: () => void
-  onRequestTargetEdit: () => void
+  onApplyTargetEdits: (
+    targets: DesignSelection[],
+    instruction: string
+  ) => Promise<void>
   onRetry: () => void
-  onSelectTarget: (target: DesignSelection | null) => void
-  auditing: boolean
+  onSelectTargets: (targets: DesignSelection[]) => void
   designMode: DesignMode
   exporting: boolean
   inspectorOpen: boolean
   project: AppProject | null
   run: AgentRunView | null
-  selectedTarget: DesignSelection | null
+  selectedTargets: DesignSelection[]
 }
 
 const viewportMeta: Record<
@@ -89,6 +99,45 @@ const artifactModes: Record<
   vector: { label: 'Vector', icon: Shapes },
   motion: { label: 'Motion', icon: Clapperboard }
 }
+
+const modeLabels: Record<DesignMode, string> = {
+  website: 'Website',
+  logo: 'Logo',
+  vector: 'Vector',
+  motion: 'Motion'
+}
+
+const previewCapabilities: Array<{
+  label: string
+  modes: DesignMode[] | 'all'
+  detail: string
+}> = [
+  {
+    label: 'Responsive widths',
+    modes: ['website'],
+    detail: 'Desktop, tablet and mobile'
+  },
+  {
+    label: 'Timeline transport',
+    modes: ['motion'],
+    detail: 'Play, pause, restart and seek'
+  },
+  {
+    label: 'Select on canvas',
+    modes: ['website', 'logo', 'vector'],
+    detail: 'Edit one element without rebuilding'
+  },
+  {
+    label: 'Saved versions',
+    modes: 'all',
+    detail: 'Restore earlier drafts without losing direction'
+  },
+  {
+    label: 'Open and export',
+    modes: 'all',
+    detail: 'HTML, SVG or silent WebM'
+  }
+]
 
 const emptyMotionPreview = {
   ready: false,
@@ -127,31 +176,33 @@ function preparePreviewDocument(html: string, mode: DesignMode): string {
 }
 
 export function PreviewCanvas({
-  auditing,
   designMode: requestedDesignMode,
   exporting,
   inspectorOpen,
   onExport,
+  onApplyTargetEdits,
   onOpenInspector,
   onOpenPreview,
-  onRequestTargetEdit,
   onRetry,
-  onSelectTarget,
+  onSelectTargets,
   project,
   run,
-  selectedTarget
+  selectedTargets
 }: PreviewCanvasProps): React.JSX.Element {
   const [viewport, setViewport] = useState<ViewportMode>('desktop')
   const [zoom, setZoom] = useState<'fit' | number>('fit')
+  const [helpOpen, setHelpOpen] = useState(false)
   const [stage, setStage] = useState({ width: 1000, height: 720 })
   const [displayedHtml, setDisplayedHtml] = useState(project?.designHtml ?? '')
   const [selectionMode, setSelectionMode] = useState(false)
-  const [selectionRect, setSelectionRect] =
-    useState<NonNullable<DesignSelection['rect']> | null>(
-      selectedTarget?.rect ?? null
-    )
+  const [inlineEditOpen, setInlineEditOpen] = useState(false)
+  const [inlineDraft, setInlineDraft] = useState('')
+  const [inlineError, setInlineError] = useState('')
+  const [inlineBusy, setInlineBusy] = useState(false)
   const stageRef = useRef<HTMLDivElement>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const helpRef = useRef<HTMLDivElement>(null)
+  const selectedTargetsRef = useRef(selectedTargets)
   const choseInitialViewport = useRef(false)
   const motionAutoPlayed = useRef(false)
   const lastPreviewUpdate = useRef(0)
@@ -184,9 +235,6 @@ export function PreviewCanvas({
         : designMode === 'logo'
           ? { width: 1000, height: 1000, label: 'Logo' }
           : { width: 1200, height: 900, label: 'Vector' }
-  const currentAudit =
-    project && project.audit?.revision === project.revision ? project.audit : undefined
-  const issueCount = currentAudit?.issueCount ?? 0
   const versionCount = project?.versions?.length ?? 0
   const sideInspector = Boolean(inspectorOpen)
   const toolsDisabled = !hasDesign || isGenerating
@@ -227,14 +275,37 @@ export function PreviewCanvas({
   }, [])
 
   useEffect(() => {
-    setSelectionRect(selectedTarget?.rect ?? null)
-    if (!selectedTarget) {
+    if (!helpOpen) return
+    const closeOnOutside = (event: MouseEvent): void => {
+      const target = event.target as Node
+      if (helpOpen && !helpRef.current?.contains(target)) {
+        setHelpOpen(false)
+      }
+    }
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      setHelpOpen(false)
+    }
+    document.addEventListener('mousedown', closeOnOutside)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutside)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [helpOpen])
+
+  useEffect(() => {
+    selectedTargetsRef.current = selectedTargets
+    if (selectedTargets.length === 0) {
+      setInlineEditOpen(false)
+      setInlineDraft('')
+      setInlineError('')
       iframeRef.current?.contentWindow?.postMessage(
         { channel: PREVIEW_SELECTION_CHANNEL, type: 'clear' },
         '*'
       )
     }
-  }, [selectedTarget])
+  }, [selectedTargets.length])
 
   useEffect(() => {
     const receive = (event: MessageEvent): void => {
@@ -252,14 +323,25 @@ export function PreviewCanvas({
         )
         if (selectionMode) {
           iframeRef.current?.contentWindow?.postMessage(
-            { channel: PREVIEW_SELECTION_CHANNEL, type: 'request-rect' },
+            { channel: PREVIEW_SELECTION_CHANNEL, type: 'request-rects' },
             '*'
           )
         }
         return
       }
+      if (message.type === 'rects') {
+        const rects = new Map(
+          message.rects.map((entry) => [entry.selector, entry.rect])
+        )
+        onSelectTargets(
+          selectedTargetsRef.current.map((target) => ({
+            ...target,
+            rect: rects.get(target.selector) ?? target.rect
+          }))
+        )
+        return
+      }
       if (message.type === 'rect') {
-        setSelectionRect(message.rect)
         return
       }
       if (message.type === 'cancelled') {
@@ -267,14 +349,19 @@ export function PreviewCanvas({
         return
       }
       if (message.type === 'selection') {
-        setSelectionMode(false)
-        setSelectionRect(message.target.rect ?? null)
-        onSelectTarget(message.target)
+        selectedTargetsRef.current = message.targets
+        onSelectTargets(message.targets)
+        if (message.selected) setInlineEditOpen(true)
+        return
+      }
+      if (message.type === 'selection-error') {
+        setInlineError(message.error)
+        setInlineEditOpen(true)
       }
     }
     window.addEventListener('message', receive)
     return () => window.removeEventListener('message', receive)
-  }, [onSelectTarget, selectionMode])
+  }, [onSelectTargets, selectionMode])
 
   useEffect(() => {
     const receiveMotion = (event: MessageEvent): void => {
@@ -376,33 +463,13 @@ export function PreviewCanvas({
   )
   const appliedScale = zoom === 'fit' ? fitScale : zoom
   const percent = Math.round(appliedScale * 100)
-  const selectionVisible = Boolean(
-    selectedTarget &&
-      selectionRect &&
-      selectionRect.width > 0 &&
-      selectionRect.height > 0 &&
-      selectionRect.y < size.height &&
-      selectionRect.y + selectionRect.height > 0
-  )
-  const selectionLeft = selectionRect
-    ? Math.max(0, selectionRect.x * appliedScale)
-    : 0
-  const selectionTop = selectionRect
-    ? Math.max(0, selectionRect.y * appliedScale)
-    : 0
-  const selectionWidth = selectionRect
-    ? Math.max(1, selectionRect.width * appliedScale)
-    : 0
-  const selectionHeight = selectionRect
-    ? Math.max(1, selectionRect.height * appliedScale)
-    : 0
-  const promptAbove = selectionTop > 42
-  const promptLeft = Math.max(
-    8,
-    Math.min(
-      selectionLeft + selectionWidth - 188,
-      Math.max(8, size.width * appliedScale - 196)
-    )
+  const visibleTargets = selectedTargets.filter(
+    (target) =>
+      target.rect &&
+      target.rect.width > 0 &&
+      target.rect.height > 0 &&
+      target.rect.y < size.height &&
+      target.rect.y + target.rect.height > 0
   )
 
   function zoomOut(): void {
@@ -420,8 +487,48 @@ export function PreviewCanvas({
     )
   }
 
+  function removeSelectedTarget(selector: string): void {
+    const next = selectedTargets.filter(
+      (target) => target.selector !== selector
+    )
+    selectedTargetsRef.current = next
+    onSelectTargets(next)
+  }
+
+  function clearSelectedTargets(): void {
+    selectedTargetsRef.current = []
+    onSelectTargets([])
+  }
+
+  async function submitInlineEdit(
+    event: FormEvent<HTMLFormElement>
+  ): Promise<void> {
+    event.preventDefault()
+    const instruction = inlineDraft.trim()
+    if (!instruction || selectedTargets.length === 0 || inlineBusy) return
+    setInlineBusy(true)
+    setInlineError('')
+    try {
+      await onApplyTargetEdits(selectedTargets, instruction)
+      setInlineDraft('')
+      setInlineEditOpen(false)
+      setSelectionMode(false)
+    } catch (caught) {
+      setInlineError(
+        caught instanceof Error
+          ? caught.message
+          : 'The selected elements could not be updated.'
+      )
+    } finally {
+      setInlineBusy(false)
+    }
+  }
+
   useEffect(() => {
-    if (!hasDesign || isGenerating) setSelectionMode(false)
+    if (!hasDesign || isGenerating) {
+      setSelectionMode(false)
+      setInlineEditOpen(false)
+    }
   }, [hasDesign, isGenerating])
 
   return (
@@ -484,7 +591,7 @@ export function PreviewCanvas({
               <Minus aria-hidden="true" size={14} />
             </button>
             <button
-              aria-label="Fit design to window"
+              aria-label="Fit preview to window"
               className="zoom-value"
               data-tooltip="Fit to window"
               onClick={() => setZoom('fit')}
@@ -505,45 +612,95 @@ export function PreviewCanvas({
 
           <span className="toolbar-divider" aria-hidden="true" />
 
+          <div className="preview-help-anchor" ref={helpRef}>
+            <button
+              aria-expanded={helpOpen}
+              aria-label="Preview tool support"
+              className={`icon-button compact-icon ${helpOpen ? 'is-active' : ''}`}
+              data-tooltip="Preview guide"
+              onClick={() => {
+                setHelpOpen((value) => !value)
+              }}
+              type="button"
+            >
+              <CircleHelp aria-hidden="true" size={15} />
+            </button>
+            {helpOpen ? (
+              <div
+                aria-label="Preview tool support by mode"
+                className="preview-popover preview-help-popover"
+                role="group"
+              >
+                <div className="preview-popover-heading">
+                  <span>
+                    <CircleHelp aria-hidden="true" size={14} />
+                    Preview support
+                  </span>
+                  <small>Tools adapt to the active design mode</small>
+                </div>
+                <div className="preview-capability-list">
+                  {previewCapabilities.map((capability) => {
+                    const modes =
+                      capability.modes === 'all'
+                        ? (Object.keys(modeLabels) as DesignMode[])
+                        : capability.modes
+                    return (
+                      <div className="preview-capability-row" key={capability.label}>
+                        <span className="preview-capability-copy">
+                          <strong>{capability.label}</strong>
+                          <small>{capability.detail}</small>
+                        </span>
+                        <span className="preview-capability-modes">
+                          {capability.modes === 'all' ? (
+                            <span className="preview-mode-chip is-all">
+                              All modes
+                            </span>
+                          ) : (
+                            modes.map((mode) => {
+                              const CapabilityIcon = artifactModes[mode].icon
+                              return (
+                                <span
+                                  className="preview-mode-chip"
+                                  key={mode}
+                                  title={modeLabels[mode]}
+                                >
+                                  <CapabilityIcon
+                                    aria-hidden="true"
+                                    size={11}
+                                  />
+                                  {modeLabels[mode]}
+                                </span>
+                              )
+                            })
+                          )}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
           <button
             aria-label={
               selectionMode
-                ? 'Cancel element selection'
-                : 'Select an element to edit'
+                ? 'Stop selecting elements'
+                : 'Select elements to edit'
             }
             aria-pressed={selectionMode}
             className={`toolbar-action selection-trigger ${
               selectionMode ? 'is-active' : ''
             }`}
-            data-tooltip="Select element"
+            data-tooltip="Select elements"
             disabled={toolsDisabled || designMode === 'motion'}
             onClick={() => {
               setSelectionMode((value) => !value)
-              if (selectedTarget) onSelectTarget(null)
             }}
             type="button"
           >
             <MousePointer2 aria-hidden="true" size={14} />
             <span>{selectionMode ? 'Selecting' : 'Select'}</span>
-          </button>
-
-          <button
-            aria-label={`Open design review${issueCount > 0 ? `, ${issueCount} issues` : ''}`}
-            className="toolbar-action review-trigger"
-            data-tooltip="Review"
-            disabled={toolsDisabled}
-            onClick={() => onOpenInspector('review')}
-            type="button"
-          >
-            {auditing ? (
-              <LoaderCircle aria-hidden="true" className="spin" size={14} />
-            ) : (
-              <ScanSearch aria-hidden="true" size={14} />
-            )}
-            <span>Review</span>
-            {issueCount > 0 && !auditing ? (
-              <span className="toolbar-count">{issueCount}</span>
-            ) : null}
           </button>
 
           {hasReferences ? (
@@ -648,7 +805,7 @@ export function PreviewCanvas({
                 style={{
                   width: size.width,
                   height: size.height,
-                  transform: `scale(${appliedScale})`
+                  zoom: appliedScale
                 }}
               >
                 <iframe
@@ -658,56 +815,69 @@ export function PreviewCanvas({
                   title={project?.title ?? 'Generated design'}
                 />
               </div>
-              {selectionVisible && selectedTarget ? (
+              {visibleTargets.length > 0 ? (
                 <div className="preview-selection-layer" aria-live="polite">
-                  <div
-                    className="preview-selection-outline"
-                    style={{
-                      left: selectionLeft,
-                      top: selectionTop,
-                      width: selectionWidth,
-                      height: selectionHeight
-                    }}
-                  >
-                    <span className="preview-selection-corner is-tl" />
-                    <span className="preview-selection-corner is-tr" />
-                    <span className="preview-selection-corner is-bl" />
-                    <span className="preview-selection-corner is-br" />
-                  </div>
-                  <div
-                    className={`preview-selection-prompt ${
-                      promptAbove ? 'is-above' : 'is-below'
-                    }`}
-                    style={{
-                      left: promptLeft,
-                      top: promptAbove
-                        ? Math.max(8, selectionTop - 36)
-                        : selectionTop + selectionHeight + 8
-                    }}
-                  >
-                    <button
-                      className="preview-selection-prompt-main"
-                      onClick={onRequestTargetEdit}
-                      type="button"
-                    >
-                      <MousePointer2 aria-hidden="true" size={13} />
-                      What to change?
-                    </button>
-                    <span
-                      className="preview-selection-target"
-                      title={selectedTarget.label}
-                    >
-                      {selectedTarget.label}
-                    </span>
-                    <button
-                      aria-label="Clear selected element"
-                      className="preview-selection-dismiss"
-                      onClick={() => onSelectTarget(null)}
-                      type="button"
-                    >
-                      <X aria-hidden="true" size={12} />
-                    </button>
-                  </div>
+                  {visibleTargets.map((target, index) => {
+                    const rect = target.rect!
+                    const left = Math.max(0, rect.x * appliedScale)
+                    const top = Math.max(0, rect.y * appliedScale)
+                    const width = Math.max(1, rect.width * appliedScale)
+                    const height = Math.max(1, rect.height * appliedScale)
+                    const promptTop =
+                      top > 36 ? top - 31 : top + height + 7
+                    const promptLeft = Math.max(
+                      8,
+                      Math.min(
+                        left,
+                        Math.max(8, size.width * appliedScale - 238)
+                      )
+                    )
+                    return (
+                      <div className="preview-selection-item" key={target.selector}>
+                        <div
+                          className="preview-selection-outline"
+                          style={{ left, top, width, height }}
+                        >
+                          <span className="preview-selection-index">
+                            {index + 1}
+                          </span>
+                          <span className="preview-selection-corner is-tl" />
+                          <span className="preview-selection-corner is-tr" />
+                          <span className="preview-selection-corner is-bl" />
+                          <span className="preview-selection-corner is-br" />
+                        </div>
+                        <div
+                          className="preview-selection-prompt"
+                          style={{ left: promptLeft, top: promptTop }}
+                        >
+                          <button
+                            className="preview-selection-prompt-main"
+                            onClick={() => setInlineEditOpen(true)}
+                            type="button"
+                          >
+                            <PencilLine aria-hidden="true" size={12} />
+                            Change
+                          </button>
+                          <span
+                            className="preview-selection-target"
+                            title={target.label}
+                          >
+                            {target.label}
+                          </span>
+                          <button
+                            aria-label={`Remove ${target.label} from selection`}
+                            className="preview-selection-dismiss"
+                            onClick={() =>
+                              removeSelectedTarget(target.selector)
+                            }
+                            type="button"
+                          >
+                            <X aria-hidden="true" size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               ) : null}
             </div>
@@ -747,7 +917,7 @@ export function PreviewCanvas({
                 : designMode === 'vector'
                   ? 'Describe the artwork or diagram in the agent panel.'
                   : designMode === 'motion'
-                    ? 'Describe the silent motion sequence in the agent panel.'
+                    ? 'Describe the subject, movement and intended final moment.'
                     : 'Describe the website in the agent panel.'}
             </p>
             <span className="canvas-empty-format">
@@ -756,11 +926,80 @@ export function PreviewCanvas({
                 : designMode === 'vector'
                   ? 'Scalable SVG · transparent artwork'
                   : designMode === 'motion'
-                    ? '1280 × 720 · silent code-rendered video'
+                    ? '1280 × 720 · directed silent film'
                     : 'Responsive HTML · desktop, tablet and mobile'}
             </span>
           </div>
         )}
+        {selectedTargets.length > 0 && inlineEditOpen && !isGenerating ? (
+          <form
+            aria-label={`Change ${selectedTargets.length === 1 ? 'selected element' : 'selected elements'}`}
+            className="preview-inline-editor"
+            onSubmit={(event) => void submitInlineEdit(event)}
+          >
+            <div className="preview-inline-editor-head">
+              <span>
+                <PencilLine aria-hidden="true" size={13} />
+                {selectedTargets.length === 1
+                  ? 'Change selected element'
+                  : `Change ${selectedTargets.length} selected elements`}
+              </span>
+              <button
+                className="preview-inline-clear"
+                onClick={clearSelectedTargets}
+                type="button"
+              >
+                Clear
+              </button>
+            </div>
+            <div className="preview-inline-editor-row">
+              <textarea
+                aria-label="Describe the selected-element change"
+                autoFocus
+                disabled={inlineBusy}
+                maxLength={800}
+                onChange={(event) => setInlineDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    setInlineEditOpen(false)
+                    return
+                  }
+                  if (
+                    event.key === 'Enter' &&
+                    (event.metaKey || event.ctrlKey)
+                  ) {
+                    event.preventDefault()
+                    event.currentTarget.form?.requestSubmit()
+                  }
+                }}
+                placeholder={
+                  selectedTargets.length === 1
+                    ? 'What should change here?'
+                    : 'What should change across the selected elements?'
+                }
+                rows={2}
+                value={inlineDraft}
+              />
+              <button
+                aria-label="Apply selected-element change"
+                className="preview-inline-submit"
+                disabled={inlineBusy || !inlineDraft.trim()}
+                type="submit"
+              >
+                {inlineBusy ? (
+                  <LoaderCircle aria-hidden="true" className="spin" size={14} />
+                ) : (
+                  <ArrowUp aria-hidden="true" size={14} />
+                )}
+              </button>
+            </div>
+            {inlineError ? (
+              <p className="preview-inline-error" role="alert">
+                {inlineError}
+              </p>
+            ) : null}
+          </form>
+        ) : null}
         {designMode === 'motion' && hasDesign ? (
           <div
             className={`motion-transport ${motionPreview.error ? 'has-error' : ''}`}

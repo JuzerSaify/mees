@@ -8,5 +8,6 @@ These marks are used only to identify the provider selected by the user.
 - DeepSeek: https://www.deepseek.com/favicon.ico
 - Codex CLI: uses the OpenAI mark listed above
 - OpenCode: https://opencode.ai/favicon.svg
+- AGY CLI: https://antigravity.google/favicon.ico
 
 Downloaded 2026-10-26. Product names and marks belong to their respective owners.

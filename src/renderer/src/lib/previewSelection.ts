@@ -8,11 +8,26 @@ export type PreviewSelectionMessage =
       channel: typeof PREVIEW_SELECTION_CHANNEL
       type: 'selection'
       target: DesignSelection
+      selected: boolean
+      targets: DesignSelection[]
     }
   | {
       channel: typeof PREVIEW_SELECTION_CHANNEL
       type: 'rect'
       rect: NonNullable<DesignSelection['rect']> | null
+    }
+  | {
+      channel: typeof PREVIEW_SELECTION_CHANNEL
+      type: 'rects'
+      rects: Array<{
+        selector: string
+        rect: NonNullable<DesignSelection['rect']>
+      }>
+    }
+  | {
+      channel: typeof PREVIEW_SELECTION_CHANNEL
+      type: 'selection-error'
+      error: string
     }
   | { channel: typeof PREVIEW_SELECTION_CHANNEL; type: 'cancelled' }
 
@@ -27,6 +42,7 @@ var channel=${JSON.stringify(PREVIEW_SELECTION_CHANNEL)};
 var active=false;
 var selected=null;
 var hovered=null;
+var selectedElements=new Map();
 var root=document.createElement('div');
 root.setAttribute('data-mees-selection-ui','');
 root.style.cssText='position:fixed;inset:0;z-index:2147483647;pointer-events:none;';
@@ -138,6 +154,14 @@ function publishRect(){
   if(!active&&!selected)return;
   post('rect',{rect:rectFor(selected||hovered)});
 }
+function publishRects(){
+  var rects=[];
+  selectedElements.forEach(function(element,selector){
+    var rect=rectFor(element);
+    if(rect)rects.push({selector:selector,rect:rect});
+  });
+  post('rects',{rects:rects});
+}
 document.addEventListener('mousemove',function(event){
   if(!active)return;
   var target=selectableTarget(event.target);
@@ -151,12 +175,23 @@ document.addEventListener('click',function(event){
   if(!target)return;
   event.preventDefault();
   event.stopPropagation();
-  selected=target;
-  active=false;
-  document.body.classList.remove('mees-selection-active');
-  place(selected,true);
-  post('selection',{target:snapshot(selected)});
-  publishRect();
+  try{
+    var targetSnapshot=snapshot(target);
+    var wasSelected=selectedElements.has(targetSnapshot.selector);
+    if(wasSelected){selectedElements.delete(targetSnapshot.selector);}
+    else{selectedElements.set(targetSnapshot.selector,target);}
+    selected=wasSelected?null:target;
+    place(selected||target,!wasSelected);
+    post('selection',{
+      target:targetSnapshot,
+      selected:!wasSelected,
+      targets:Array.from(selectedElements.values()).map(snapshot)
+    });
+    publishRect();
+    publishRects();
+  }catch(error){
+    post('selection-error',{error:String(error&&error.message||error)});
+  }
 },true);
 document.addEventListener('keydown',function(event){
   if(event.key!=='Escape')return;
@@ -165,10 +200,11 @@ document.addEventListener('keydown',function(event){
   document.body.classList.remove('mees-selection-active');
   hovered=null;
   place(selected,true);
+  publishRects();
   post('cancelled');
 },true);
-window.addEventListener('scroll',publishRect,{passive:true});
-window.addEventListener('resize',publishRect);
+window.addEventListener('scroll',function(){publishRect();publishRects();},{passive:true});
+window.addEventListener('resize',function(){publishRect();publishRects();});
 window.addEventListener('message',function(event){
   if(event.source!==window.parent)return;
   var data=event.data;
@@ -176,16 +212,18 @@ window.addEventListener('message',function(event){
   if(data.type==='set-mode'){
     active=data.active===true;
     document.body.classList.toggle('mees-selection-active',active);
-    if(!active){hovered=null;place(selected,true);publishRect();}
+    if(!active){hovered=null;place(selected,true);publishRect();publishRects();}
     return;
   }
   if(data.type==='clear'){
-    selected=null;hovered=null;active=false;
+    selected=null;hovered=null;active=false;selectedElements.clear();
     document.body.classList.remove('mees-selection-active');
     box.style.display='none';tag.style.display='none';
+    publishRects();
     return;
   }
   if(data.type==='request-rect'){publishRect();}
+  if(data.type==='request-rects'){publishRect();publishRects();}
 });
 post('ready');
 })();</script>`

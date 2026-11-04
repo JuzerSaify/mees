@@ -7,9 +7,13 @@ export type ProviderId =
   | 'deepseek'
   | 'codex'
   | 'opencode'
+  | 'agy'
 
 export type ProviderSource = 'api' | 'harness'
-export type HarnessProviderId = Extract<ProviderId, 'codex' | 'opencode'>
+export type HarnessProviderId = Extract<
+  ProviderId,
+  'codex' | 'opencode' | 'agy'
+>
 
 export interface ProviderDefinition {
   id: ProviderId
@@ -62,6 +66,13 @@ export const PROVIDER_DEFINITIONS: Record<ProviderId, ProviderDefinition> = {
     series: 'Local harness',
     source: 'harness',
     installUrl: 'https://opencode.ai/docs/'
+  },
+  agy: {
+    id: 'agy',
+    name: 'AGY CLI',
+    series: 'Antigravity',
+    source: 'harness',
+    installUrl: 'https://antigravity.google/product/antigravity-cli/'
   }
 }
 
@@ -257,6 +268,10 @@ export interface EditPatch {
   note: string
 }
 
+export interface TargetedEditPatch extends EditPatch {
+  selector: string
+}
+
 export type AgentActivityKind =
   | 'research'
   | 'fetch'
@@ -322,6 +337,7 @@ export interface ChatMessage {
   effort?: EffortLevel
   designMode?: DesignMode
   target?: DesignSelection
+  targets?: DesignSelection[]
   referenceImages?: AgentReferenceImage[]
   referenceVisuals?: ReferenceVisualSummary[]
   clarification?: AgentQuestion
@@ -377,6 +393,7 @@ export interface StartAgentRequest {
   mode?: 'design' | 'polish' | 'targeted-edit'
   reviewNotes?: string
   target?: DesignSelection
+  targets?: DesignSelection[]
   recentDesigns?: RecentDesignSummary[]
   referenceVisuals?: ReferenceVisualSummary[]
   designMemory?: DesignMemoryEntry[]
@@ -441,6 +458,8 @@ export interface DesignScreenshot {
   height: number
   assetUrl: string
   createdAt: string
+  label?: string
+  time?: number
 }
 
 export interface ArtifactRuntimeIssue {

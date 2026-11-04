@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AssetStore } from './asset-store'
-import { attachSourceIcons } from './source-icons'
+import { attachSourceIcons, resolveSiteIcon } from './source-icons'
 
 const temporaryDirectories: string[] = []
 const png = Buffer.from(
@@ -49,6 +49,33 @@ describe('source favicons', () => {
     )
     expect(source?.faviconUrl).toMatch(
       /^mees-asset:\/\/asset\/[a-f0-9]{64}\.png$/
+    )
+  })
+
+  it('resolves an icon directly for the exact requested host', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mees-icons-'))
+    temporaryDirectories.push(directory)
+    const assets = new AssetStore(directory)
+    await assets.init()
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(png, {
+        status: 200,
+        headers: { 'content-type': 'image/png' }
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const icon = await resolveSiteIcon('github.com', assets)
+    expect(icon).toMatchObject({
+      host: 'github.com',
+      token: expect.stringMatching(
+        /^mees-asset:\/\/asset\/[a-f0-9]{64}\.png$/
+      ),
+      sourceUrl: expect.stringContaining('github.com')
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('domain=github.com'),
+      expect.any(Object)
     )
   })
 })

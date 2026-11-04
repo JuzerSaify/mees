@@ -1,6 +1,7 @@
 import type {
   EditPatch,
-  FetchedVisualAsset
+  FetchedVisualAsset,
+  TargetedEditPatch
 } from '../../../shared/types'
 
 export interface ParsedAgentOutput {
@@ -13,6 +14,7 @@ export interface ParsedEditPatchOutput {
   narrative: string
   patchSource: string
   patchStarted: boolean
+  kind: 'patch' | 'patches' | null
 }
 
 function stripCodeFence(value: string): string {
@@ -137,15 +139,21 @@ export function parseAgentOutput(raw: string): ParsedAgentOutput {
 
 export function parseEditPatchOutput(raw: string): ParsedEditPatchOutput {
   if (!raw.trim()) {
-    return { narrative: '', patchSource: '', patchStarted: false }
+    return {
+      narrative: '',
+      patchSource: '',
+      patchStarted: false,
+      kind: null
+    }
   }
 
-  const marker = /:::\s*patch\s*(?:\r?\n|$)/i.exec(raw)
+  const marker = /:::\s*(patch(?:es)?)\s*(?:\r?\n|$)/i.exec(raw)
   if (!marker || marker.index === undefined) {
     return {
       narrative: stripPartialMarker(raw),
       patchSource: '',
-      patchStarted: false
+      patchStarted: false,
+      kind: null
     }
   }
 
@@ -156,7 +164,12 @@ export function parseEditPatchOutput(raw: string): ParsedEditPatchOutput {
   const patchSource = (
     closing ? remainder.slice(0, closing.index) : remainder
   ).trim()
-  return { narrative, patchSource, patchStarted: true }
+  return {
+    narrative,
+    patchSource,
+    patchStarted: true,
+    kind: marker[1]?.toLowerCase() === 'patches' ? 'patches' : 'patch'
+  }
 }
 
 function stripJsonFence(value: string): string {
@@ -202,6 +215,60 @@ export function parseEditPatch(source: string): EditPatch {
     styles: styles || undefined,
     note: note.slice(0, 420) || 'Updated the selected element.'
   }
+}
+
+export function parseEditPatches(
+  source: string,
+  fallbackSelector?: string
+): TargetedEditPatch[] {
+  const cleaned = stripJsonFence(source)
+  const start = cleaned.indexOf('{')
+  const end = cleaned.lastIndexOf('}')
+  if (start === -1 || end <= start) {
+    throw new Error('The selected-element edit did not return usable patches.')
+  }
+
+  let value: unknown
+  try {
+    value = JSON.parse(cleaned.slice(start, end + 1))
+  } catch {
+    throw new Error('The selected-element edit returned invalid patch data.')
+  }
+  const record =
+    value && typeof value === 'object'
+      ? (value as Record<string, unknown>)
+      : {}
+  const patches = Array.isArray(record.patches) ? record.patches : [record]
+  const parsed = patches.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return []
+    const patch = entry as Record<string, unknown>
+    const selector =
+      typeof patch.selector === 'string'
+        ? patch.selector.trim()
+        : fallbackSelector?.trim() || ''
+    const replacement =
+      typeof patch.replacement === 'string'
+        ? patch.replacement.trim()
+        : ''
+    if (!selector || !replacement || replacement.length > 40_000) return []
+    const styles =
+      typeof patch.styles === 'string' ? patch.styles.trim() : undefined
+    if (styles && styles.length > 40_000) return []
+    const note =
+      typeof patch.note === 'string' ? patch.note.trim().slice(0, 420) : ''
+    return [
+      {
+        selector,
+        replacement,
+        styles: styles || undefined,
+        note: note || 'Updated the selected element.'
+      } satisfies TargetedEditPatch
+    ]
+  })
+  if (parsed.length === 0) {
+    throw new Error('The selected-element edit returned no usable patches.')
+  }
+  return parsed
 }
 
 export function hydrateFetchedAssets(
